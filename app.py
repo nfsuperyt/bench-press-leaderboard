@@ -50,13 +50,16 @@ MAX_LEADERBOARD_ENTRIES = 100
 SERVER_URL = "https://bench-press-leaderboard.onrender.com"
 
 # IMPORTANT:
-# Keep this short so a sleeping/broken Render server
-# cannot make the game appear frozen.
-SERVER_TIMEOUT = 15
+# Requests only wait 5 seconds.
+# The request runs in the background network thread,
+# so the Pygame game itself never freezes.
+SERVER_TIMEOUT = 5
 
 LEADERBOARD_REFRESH_TIME = 10.0
 SCORE_UPLOAD_TIME = 10.0
 
+# After a failed request, wait 5 seconds and automatically
+# try again.
 NETWORK_RETRY_DELAY = 5.0
 
 
@@ -81,7 +84,12 @@ leaderboard_request_pending = False
 score_request_pending = False
 
 last_successful_connection = 0.0
-next_network_retry = 0.0
+
+# Separate retry timers.
+# A failed leaderboard request must not prevent a score
+# upload from trying, and vice versa.
+next_leaderboard_retry = 0.0
+next_score_retry = 0.0
 
 
 # ============================================================
@@ -125,7 +133,9 @@ def network_worker():
     global score_request_pending
 
     global last_successful_connection
-    global next_network_retry
+
+    global next_leaderboard_retry
+    global next_score_retry
 
     session = requests.Session()
 
@@ -172,7 +182,7 @@ def network_worker():
                         f"SERVER {response.status_code}"
                     )
 
-                    next_network_retry = (
+                    next_leaderboard_retry = (
                         time.time()
                         + NETWORK_RETRY_DELAY
                     )
@@ -190,7 +200,7 @@ def network_worker():
                         "BAD SERVER DATA"
                     )
 
-                    next_network_retry = (
+                    next_leaderboard_retry = (
                         time.time()
                         + NETWORK_RETRY_DELAY
                     )
@@ -204,7 +214,7 @@ def network_worker():
                         "BAD SERVER DATA"
                     )
 
-                    next_network_retry = (
+                    next_leaderboard_retry = (
                         time.time()
                         + NETWORK_RETRY_DELAY
                     )
@@ -221,7 +231,7 @@ def network_worker():
                         "SERVER ERROR"
                     )
 
-                    next_network_retry = (
+                    next_leaderboard_retry = (
                         time.time()
                         + NETWORK_RETRY_DELAY
                     )
@@ -254,7 +264,7 @@ def network_worker():
                         time.time()
                     )
 
-                next_network_retry = 0.0
+                next_leaderboard_retry = 0.0
 
             # =================================================
             # SCORE UPLOAD
@@ -319,7 +329,7 @@ def network_worker():
                         f"SERVER {response.status_code}"
                     )
 
-                    next_network_retry = (
+                    next_score_retry = (
                         time.time()
                         + NETWORK_RETRY_DELAY
                     )
@@ -337,7 +347,7 @@ def network_worker():
                         "BAD SCORE DATA"
                     )
 
-                    next_network_retry = (
+                    next_score_retry = (
                         time.time()
                         + NETWORK_RETRY_DELAY
                     )
@@ -351,7 +361,7 @@ def network_worker():
                         "BAD SCORE DATA"
                     )
 
-                    next_network_retry = (
+                    next_score_retry = (
                         time.time()
                         + NETWORK_RETRY_DELAY
                     )
@@ -368,7 +378,7 @@ def network_worker():
                         "UPLOAD FAILED"
                     )
 
-                    next_network_retry = (
+                    next_score_retry = (
                         time.time()
                         + NETWORK_RETRY_DELAY
                     )
@@ -376,7 +386,7 @@ def network_worker():
                     continue
 
                 # ---------------------------------------------
-                # SUCCESS
+                # SCORE UPLOAD SUCCESS
                 # ---------------------------------------------
 
                 with network_lock:
@@ -413,19 +423,33 @@ def network_worker():
                         "rank"
                     )
 
-                next_network_retry = 0.0
+                next_score_retry = 0.0
 
         except requests.Timeout:
 
-            set_network_status(
-                False,
-                "SERVER SLOW"
-            )
+            if task_type == "leaderboard":
 
-            next_network_retry = (
-                time.time()
-                + NETWORK_RETRY_DELAY
-            )
+                set_network_status(
+                    False,
+                    "SERVER SLOW"
+                )
+
+                next_leaderboard_retry = (
+                    time.time()
+                    + NETWORK_RETRY_DELAY
+                )
+
+            elif task_type == "score":
+
+                set_network_status(
+                    False,
+                    "SERVER SLOW"
+                )
+
+                next_score_retry = (
+                    time.time()
+                    + NETWORK_RETRY_DELAY
+                )
 
         except requests.ConnectionError:
 
@@ -434,10 +458,19 @@ def network_worker():
                 "OFFLINE"
             )
 
-            next_network_retry = (
-                time.time()
-                + NETWORK_RETRY_DELAY
-            )
+            if task_type == "leaderboard":
+
+                next_leaderboard_retry = (
+                    time.time()
+                    + NETWORK_RETRY_DELAY
+                )
+
+            elif task_type == "score":
+
+                next_score_retry = (
+                    time.time()
+                    + NETWORK_RETRY_DELAY
+                )
 
         except requests.RequestException:
 
@@ -446,10 +479,19 @@ def network_worker():
                 "NETWORK ERROR"
             )
 
-            next_network_retry = (
-                time.time()
-                + NETWORK_RETRY_DELAY
-            )
+            if task_type == "leaderboard":
+
+                next_leaderboard_retry = (
+                    time.time()
+                    + NETWORK_RETRY_DELAY
+                )
+
+            elif task_type == "score":
+
+                next_score_retry = (
+                    time.time()
+                    + NETWORK_RETRY_DELAY
+                )
 
         except Exception:
 
@@ -458,10 +500,19 @@ def network_worker():
                 "OFFLINE"
             )
 
-            next_network_retry = (
-                time.time()
-                + NETWORK_RETRY_DELAY
-            )
+            if task_type == "leaderboard":
+
+                next_leaderboard_retry = (
+                    time.time()
+                    + NETWORK_RETRY_DELAY
+                )
+
+            elif task_type == "score":
+
+                next_score_retry = (
+                    time.time()
+                    + NETWORK_RETRY_DELAY
+                )
 
         finally:
 
@@ -506,7 +557,7 @@ def get_online_leaderboard():
 
     now = time.time()
 
-    if now < next_network_retry:
+    if now < next_leaderboard_retry:
 
         return
 
@@ -541,7 +592,7 @@ def upload_score():
 
     now = time.time()
 
-    if now < next_network_retry:
+    if now < next_score_retry:
 
         return
 
@@ -1222,31 +1273,24 @@ def create_challenge():
 def get_challenge_reward_text():
 
     if challenge_difficulty == "easy":
-
         return "+25% MAX STAMINA"
 
     if challenge_difficulty == "medium":
-
         return "+50% MAX STAMINA"
 
     if challenge_difficulty == "hard":
-
         return "+50 MAX STAMINA + FULL REFILL"
 
     if challenge_difficulty == "insane":
-
         return "+100 MAX STAMINA + FULL REFILL"
 
     if challenge_difficulty == "hell":
-
         return "+150 MAX STAMINA + FULL REFILL"
 
     if challenge_difficulty == "depression":
-
         return "+200 MAX STAMINA + FULL REFILL"
 
     if challenge_difficulty == "demonic":
-
         return "+250 MAX STAMINA + FULL REFILL"
 
     return ""
@@ -1342,7 +1386,6 @@ def complete_challenge():
 def update_challenge_display():
 
     if challenge is None:
-
         return ""
 
     action = (
@@ -2828,8 +2871,8 @@ def draw_leaderboard():
 
 pygame.key.start_text_input()
 
-# Do NOT make the game wait for this.
-# It runs in the background.
+# Start the first leaderboard request in the background.
+# The game does NOT wait for the server.
 get_online_leaderboard()
 
 
@@ -2874,10 +2917,6 @@ while running:
     for e in pygame.event.get():
 
         if e.type == pygame.QUIT:
-
-            if username:
-
-                upload_score()
 
             running = False
 
@@ -3877,6 +3916,24 @@ while running:
 # ============================================================
 # SHUTDOWN
 # ============================================================
+
+# Give any already-queued score upload a moment to finish.
+# This is especially useful when closing the game immediately
+# after earning a score.
+
+if username:
+
+    upload_score()
+
+    shutdown_wait_start = time.time()
+
+    while (
+        score_request_pending
+        and time.time() - shutdown_wait_start < 2.0
+    ):
+
+        time.sleep(0.05)
+
 
 network_running = False
 
