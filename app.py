@@ -45,25 +45,15 @@ MAX_LEADERBOARD_ENTRIES = 100
 
 # ============================================================
 # ONLINE SERVER
-# ROBUST VERSION FOR RENDER
 # ============================================================
 
 SERVER_URL = "https://bench-press-leaderboard.onrender.com"
 
-# Render may need time to wake up.
-SERVER_TIMEOUT = 15
+SERVER_TIMEOUT = 120
 
-# How often the leaderboard refreshes.
 LEADERBOARD_REFRESH_TIME = 5.0
-
-# How often the current score is uploaded.
 SCORE_UPLOAD_TIME = 5.0
-
-# Delay after a failed connection.
 NETWORK_RETRY_DELAY = 5.0
-
-# Maximum leaderboard entries.
-MAX_LEADERBOARD_ENTRIES = 100
 
 
 online_leaderboard = []
@@ -77,30 +67,19 @@ online_rank = None
 last_leaderboard_request = 0.0
 last_score_request = 0.0
 
-
-# ============================================================
-# NETWORK STATE
-# ============================================================
-
 network_queue = queue.Queue()
-
 network_lock = threading.Lock()
 
 network_running = True
 
-# Prevent duplicate requests from piling up.
 leaderboard_request_pending = False
 score_request_pending = False
 
-# Last successful connection.
 last_successful_connection = 0.0
-
-# Prevent immediate retry spam after an error.
 next_network_retry = 0.0
 
 
 def server_url(path):
-
     return SERVER_URL.rstrip("/") + path
 
 
@@ -108,16 +87,12 @@ def server_url(path):
 # NETWORK STATUS
 # ============================================================
 
-def set_network_status(
-    connected,
-    message
-):
+def set_network_status(connected, message):
 
     global online_connected
     global online_status_message
 
     with network_lock:
-
         online_connected = connected
         online_status_message = message
 
@@ -138,13 +113,6 @@ def network_worker():
     global last_successful_connection
     global next_network_retry
 
-    # --------------------------------------------------------
-    # Persistent HTTP session.
-    #
-    # This keeps HTTP connections alive instead of creating
-    # a completely new connection for every request.
-    # --------------------------------------------------------
-
     session = requests.Session()
 
     session.headers.update({
@@ -154,13 +122,9 @@ def network_worker():
     while network_running:
 
         try:
-
-            task = network_queue.get(
-                timeout=0.25
-            )
+            task = network_queue.get(timeout=0.25)
 
         except queue.Empty:
-
             continue
 
         task_type = task.get("type")
@@ -182,8 +146,7 @@ def network_worker():
 
                     set_network_status(
                         False,
-                        f"Server error: "
-                        f"{response.status_code}"
+                        f"Server error: {response.status_code}"
                     )
 
                     next_network_retry = (
@@ -194,7 +157,6 @@ def network_worker():
                     continue
 
                 try:
-
                     data = response.json()
 
                 except ValueError:
@@ -225,10 +187,7 @@ def network_worker():
 
                     continue
 
-                if not data.get(
-                    "success",
-                    False
-                ):
+                if not data.get("success", False):
 
                     set_network_status(
                         False,
@@ -247,22 +206,14 @@ def network_worker():
                     []
                 )
 
-                if not isinstance(
-                    received,
-                    list
-                ):
-
+                if not isinstance(received, list):
                     received = []
 
                 with network_lock:
 
                     online_leaderboard = received
-
                     online_connected = True
-
-                    online_status_message = (
-                        "CONNECTED"
-                    )
+                    online_status_message = "CONNECTED"
 
                     last_successful_connection = (
                         time.time()
@@ -276,18 +227,9 @@ def network_worker():
 
             elif task_type == "score":
 
-                device_id = task.get(
-                    "device_id"
-                )
-
-                player_name = task.get(
-                    "username"
-                )
-
-                player_score = task.get(
-                    "score",
-                    0
-                )
+                device_id = task.get("device_id")
+                player_name = task.get("username")
+                player_score = task.get("score", 0)
 
                 if not device_id:
 
@@ -299,16 +241,9 @@ def network_worker():
                     continue
 
                 try:
+                    player_score = int(player_score)
 
-                    player_score = int(
-                        player_score
-                    )
-
-                except (
-                    ValueError,
-                    TypeError
-                ):
-
+                except (ValueError, TypeError):
                     player_score = 0
 
                 response = session.post(
@@ -325,8 +260,7 @@ def network_worker():
 
                     set_network_status(
                         False,
-                        f"Server error: "
-                        f"{response.status_code}"
+                        f"Server error: {response.status_code}"
                     )
 
                     next_network_retry = (
@@ -337,7 +271,6 @@ def network_worker():
                     continue
 
                 try:
-
                     data = response.json()
 
                 except ValueError:
@@ -368,10 +301,7 @@ def network_worker():
 
                     continue
 
-                if not data.get(
-                    "success",
-                    False
-                ):
+                if not data.get("success", False):
 
                     set_network_status(
                         False,
@@ -385,24 +315,16 @@ def network_worker():
 
                     continue
 
-                # ---------------------------------------------
-                # SUCCESSFUL UPLOAD
-                # ---------------------------------------------
-
                 with network_lock:
 
                     online_connected = True
-
-                    online_status_message = (
-                        "CONNECTED"
-                    )
+                    online_status_message = "CONNECTED"
 
                     last_successful_connection = (
                         time.time()
                     )
 
                     try:
-
                         online_best_score = int(
                             data.get(
                                 "score",
@@ -410,18 +332,10 @@ def network_worker():
                             )
                         )
 
-                    except (
-                        ValueError,
-                        TypeError
-                    ):
+                    except (ValueError, TypeError):
+                        online_best_score = player_score
 
-                        online_best_score = (
-                            player_score
-                        )
-
-                    online_rank = data.get(
-                        "rank"
-                    )
+                    online_rank = data.get("rank")
 
                 next_network_retry = 0.0
 
@@ -463,9 +377,6 @@ def network_worker():
 
         except Exception:
 
-            # Never let a networking error kill
-            # the networking thread.
-
             set_network_status(
                 False,
                 "NETWORK ERROR"
@@ -478,19 +389,10 @@ def network_worker():
 
         finally:
 
-            # ------------------------------------------------
-            # IMPORTANT:
-            #
-            # Mark the request as finished.
-            # This allows another request to be submitted.
-            # ------------------------------------------------
-
             if task_type == "leaderboard":
-
                 leaderboard_request_pending = False
 
             elif task_type == "score":
-
                 score_request_pending = False
 
             network_queue.task_done()
@@ -520,14 +422,10 @@ def get_online_leaderboard():
 
     now = time.time()
 
-    # Do not hammer Render while it is waking up.
     if now < next_network_retry:
-
         return
 
-    # Don't queue duplicate requests.
     if leaderboard_request_pending:
-
         return
 
     leaderboard_request_pending = True
@@ -552,19 +450,14 @@ def upload_score():
     global score_request_pending
 
     if not username:
-
         return
 
     now = time.time()
 
-    # Wait for the retry window after an error.
     if now < next_network_retry:
-
         return
 
-    # Don't allow uploads to pile up.
     if score_request_pending:
-
         return
 
     score_request_pending = True
@@ -594,22 +487,13 @@ def update_online_data():
 
     now = time.time()
 
-    # --------------------------------------------------------
-    # LEADERBOARD
-    # --------------------------------------------------------
-
     if (
         now - last_leaderboard_request
         >= LEADERBOARD_REFRESH_TIME
     ):
 
         get_online_leaderboard()
-
         last_leaderboard_request = now
-
-    # --------------------------------------------------------
-    # SCORE
-    # --------------------------------------------------------
 
     if (
         state == "playing"
@@ -621,7 +505,6 @@ def update_online_data():
     ):
 
         upload_score()
-
         last_score_request = now
 
 
@@ -647,11 +530,9 @@ def get_device_id():
                 saved_id = file.read().strip()
 
                 if len(saved_id) >= 10:
-
                     return saved_id
 
         except OSError:
-
             pass
 
     new_id = str(uuid.uuid4())
@@ -667,7 +548,6 @@ def get_device_id():
             file.write(new_id)
 
     except OSError:
-
         pass
 
     return new_id
@@ -687,13 +567,11 @@ username_input = ""
 def clean_username(name):
 
     if not isinstance(name, str):
-
         return "Player"
 
     name = name.strip()
 
     if not name:
-
         return "Player"
 
     name = name[:20]
@@ -712,7 +590,6 @@ def clean_username(name):
     cleaned = cleaned.strip()
 
     if not cleaned:
-
         return "Player"
 
     return cleaned
@@ -729,17 +606,13 @@ leaderboard_page = False
 def get_sorted_leaderboard():
 
     with network_lock:
-
-        received = list(
-            online_leaderboard
-        )
+        received = list(online_leaderboard)
 
     entries = []
 
     for item in received:
 
         if not isinstance(item, dict):
-
             continue
 
         name = item.get(
@@ -750,17 +623,10 @@ def get_sorted_leaderboard():
         try:
 
             score_value = int(
-                item.get(
-                    "score",
-                    0
-                )
+                item.get("score", 0)
             )
 
-        except (
-            ValueError,
-            TypeError
-        ):
-
+        except (ValueError, TypeError):
             continue
 
         rank = item.get(
@@ -769,14 +635,9 @@ def get_sorted_leaderboard():
         )
 
         try:
-
             rank = int(rank)
 
-        except (
-            ValueError,
-            TypeError
-        ):
-
+        except (ValueError, TypeError):
             rank = len(entries) + 1
 
         entries.append(
@@ -801,7 +662,6 @@ def get_sorted_leaderboard():
 def get_player_best():
 
     with network_lock:
-
         best_online = online_best_score
 
     best = max(
@@ -809,9 +669,7 @@ def get_player_best():
         best_online
     )
 
-    player_name = clean_username(
-        username
-    )
+    player_name = clean_username(username)
 
     for _, name, score_value in get_sorted_leaderboard():
 
@@ -828,36 +686,21 @@ def get_player_best():
 def get_player_rank():
 
     with network_lock:
-
         current_rank = online_rank
 
     if current_rank is not None:
 
         try:
-
             return int(current_rank)
 
-        except (
-            ValueError,
-            TypeError
-        ):
-
+        except (ValueError, TypeError):
             pass
 
-    player_name = clean_username(
-        username
-    )
+    player_name = clean_username(username)
 
-    entries = get_sorted_leaderboard()
-
-    for (
-        rank,
-        name,
-        score_value
-    ) in entries:
+    for rank, name, score_value in get_sorted_leaderboard():
 
         if name == player_name:
-
             return rank
 
     return None
@@ -947,7 +790,6 @@ def get_required_taps(weight):
     }
 
     if weight in known:
-
         return known[weight]
 
     if weight <= 500:
@@ -961,9 +803,7 @@ def get_required_taps(weight):
             500
         ]
 
-        for i in range(
-            len(points) - 1
-        ):
+        for i in range(len(points) - 1):
 
             low = points[i]
             high = points[i + 1]
@@ -1074,10 +914,7 @@ def create_challenge():
             20
         )
 
-        challenge_target = random.randint(
-            2,
-            3
-        )
+        challenge_target = random.randint(2, 3)
 
     elif difficulty == "medium":
 
@@ -1092,10 +929,7 @@ def create_challenge():
             20
         )
 
-        challenge_target = random.randint(
-            3,
-            5
-        )
+        challenge_target = random.randint(3, 5)
 
     elif difficulty == "hard":
 
@@ -1110,10 +944,7 @@ def create_challenge():
             20
         )
 
-        challenge_target = random.randint(
-            4,
-            6
-        )
+        challenge_target = random.randint(4, 6)
 
     elif difficulty == "insane":
 
@@ -1138,10 +969,7 @@ def create_challenge():
                 20
             )
 
-        challenge_target = random.randint(
-            5,
-            8
-        )
+        challenge_target = random.randint(5, 8)
 
     elif difficulty == "hell":
 
@@ -1156,10 +984,7 @@ def create_challenge():
             20
         )
 
-        challenge_target = random.randint(
-            3,
-            5
-        )
+        challenge_target = random.randint(3, 5)
 
     elif difficulty == "depression":
 
@@ -1174,10 +999,7 @@ def create_challenge():
             20
         )
 
-        challenge_target = random.randint(
-            4,
-            6
-        )
+        challenge_target = random.randint(4, 6)
 
     else:
 
@@ -1192,12 +1014,8 @@ def create_challenge():
             20
         )
 
-        challenge_target = random.randint(
-            5,
-            8
-        )
+        challenge_target = random.randint(5, 8)
 
-    # Safety check.
     if not high_weights_unlocked:
 
         challenge_weight = min(
@@ -1226,46 +1044,38 @@ def create_challenge():
             )
 
     challenge = challenge_type
-
     challenge_progress = 0
-
-    challenge_message = ""
-
-    challenge_message_timer = 0.0
 
     challenge_message = (
         f"{difficulty.upper()} CHALLENGE!"
+    )
+
+    challenge_message_timer = (
+        CHALLENGE_MESSAGE_DURATION
     )
 
 
 def get_challenge_reward_text():
 
     if challenge_difficulty == "easy":
-
         return "+25% MAX STAMINA"
 
     if challenge_difficulty == "medium":
-
         return "+50% MAX STAMINA"
 
     if challenge_difficulty == "hard":
-
         return "+50 MAX STAMINA + FULL REFILL"
 
     if challenge_difficulty == "insane":
-
         return "+100 MAX STAMINA + FULL REFILL"
 
     if challenge_difficulty == "hell":
-
         return "+150 MAX STAMINA + FULL REFILL"
 
     if challenge_difficulty == "depression":
-
         return "+200 MAX STAMINA + FULL REFILL"
 
     if challenge_difficulty == "demonic":
-
         return "+250 MAX STAMINA + FULL REFILL"
 
     return ""
@@ -1293,18 +1103,14 @@ def complete_challenge():
 
     if challenge_difficulty == "easy":
 
-        stamina_gain = (
-            max_stamina * 0.25
-        )
+        stamina_gain = max_stamina * 0.25
 
         max_stamina += stamina_gain
         stamina = max_stamina
 
     elif challenge_difficulty == "medium":
 
-        stamina_gain = (
-            max_stamina * 0.50
-        )
+        stamina_gain = max_stamina * 0.50
 
         max_stamina += stamina_gain
         stamina = max_stamina
@@ -1334,9 +1140,7 @@ def complete_challenge():
         max_stamina += 250
         stamina = max_stamina
 
-    reward_score = rewards[
-        challenge_difficulty
-    ]
+    reward_score = rewards[challenge_difficulty]
 
     score += reward_score
 
@@ -1361,7 +1165,6 @@ def complete_challenge():
 def update_challenge_display():
 
     if challenge is None:
-
         return ""
 
     action = (
@@ -1429,8 +1232,6 @@ message = ""
 
 weight_menu_open = False
 weight_page = 1
-
-leaderboard_page = False
 
 throw_unlocked = True
 
@@ -1612,7 +1413,6 @@ def change_weight(new_weight):
         new_weight >= 520
         and score < HIGH_WEIGHT_UNLOCK_SCORE
     ):
-
         return
 
     weight = max(
@@ -1650,7 +1450,6 @@ def register_challenge_rep():
     challenge_progress += 1
 
     if challenge_progress >= challenge_target:
-
         complete_challenge()
 
 
@@ -1674,7 +1473,6 @@ def register_challenge_throw():
     challenge_progress += 1
 
     if challenge_progress >= challenge_target:
-
         complete_challenge()
 
 
@@ -1682,9 +1480,7 @@ def register_challenge_throw():
 # CRUSH
 # ============================================================
 
-def start_crush(
-    message_text="BAR CRUSH!"
-):
+def start_crush(message_text="BAR CRUSH!"):
 
     global state
     global crushing
@@ -1710,9 +1506,7 @@ def start_crush(
 
 def draw_gym():
 
-    screen.fill(
-        (25, 30, 38)
-    )
+    screen.fill((25, 30, 38))
 
     pygame.draw.rect(
         screen,
@@ -1846,7 +1640,6 @@ def draw_gym():
             )
 
     if state == "crushing":
-
         return
 
     txt(
@@ -1904,28 +1697,13 @@ def draw_gym():
     )
 
     if stamina_ratio > 0.5:
-
-        stamina_colour = (
-            40,
-            200,
-            100
-        )
+        stamina_colour = (40, 200, 100)
 
     elif stamina_ratio > 0.2:
-
-        stamina_colour = (
-            230,
-            190,
-            40
-        )
+        stamina_colour = (230, 190, 40)
 
     else:
-
-        stamina_colour = (
-            220,
-            55,
-            50
-        )
+        stamina_colour = (220, 55, 50)
 
     pygame.draw.rect(
         screen,
@@ -1993,7 +1771,6 @@ def draw_gym():
     )
 
     with network_lock:
-
         connected = online_connected
         status = online_status_message
 
@@ -2009,8 +1786,6 @@ def draw_gym():
 
     else:
 
-        # Show the actual connection state instead of
-        # always saying OFFLINE.
         txt(
             status,
             805,
@@ -2131,9 +1906,7 @@ def draw_weight_menu():
             tile_h
         )
 
-        hovered = rect.collidepoint(
-            mouse_pos
-        )
+        hovered = rect.collidepoint(mouse_pos)
 
         locked = (
             selected_weight >= 520
@@ -2141,36 +1914,16 @@ def draw_weight_menu():
         )
 
         if locked:
-
-            colour = (
-                45,
-                45,
-                50
-            )
+            colour = (45, 45, 50)
 
         elif selected_weight == weight:
-
-            colour = (
-                45,
-                150,
-                90
-            )
+            colour = (45, 150, 90)
 
         elif hovered:
-
-            colour = (
-                65,
-                105,
-                180
-            )
+            colour = (65, 105, 180)
 
         else:
-
-            colour = (
-                55,
-                60,
-                70
-            )
+            colour = (55, 60, 70)
 
         pygame.draw.rect(
             screen,
@@ -2589,7 +2342,6 @@ def draw_leaderboard():
     )
 
     with network_lock:
-
         connected = online_connected
 
     if connected:
@@ -2713,7 +2465,6 @@ def draw_leaderboard():
         )
 
         if index >= len(entries):
-
             break
 
         (
@@ -2849,7 +2600,6 @@ def draw_leaderboard():
 
 pygame.key.start_text_input()
 
-# Initial leaderboard request.
 get_online_leaderboard()
 
 
@@ -2869,7 +2619,7 @@ while running:
     )
 
     # ========================================================
-    # CHALLENGE COMPLETION MESSAGE TIMER
+    # CHALLENGE MESSAGE TIMER
     # ========================================================
 
     if challenge_message_timer > 0:
@@ -2896,11 +2646,9 @@ while running:
         if e.type == pygame.QUIT:
 
             if username:
-
                 upload_score()
 
             running = False
-
             break
 
         # ====================================================
@@ -2912,7 +2660,6 @@ while running:
             if e.type == pygame.TEXTINPUT:
 
                 if len(username_input) < 20:
-
                     username_input += e.text
 
                 continue
@@ -2931,6 +2678,8 @@ while running:
                         username_input
                     )
 
+                    pygame.key.stop_text_input()
+
                     reset()
 
                 elif e.key == pygame.K_TAB:
@@ -2939,7 +2688,7 @@ while running:
 
                     get_online_leaderboard()
 
-                continue
+            continue
 
         # ====================================================
         # LEADERBOARD
@@ -2950,7 +2699,6 @@ while running:
             if e.type == pygame.MOUSEWHEEL:
 
                 leaderboard_scroll -= e.y
-
                 continue
 
             if e.type == pygame.KEYDOWN:
@@ -3112,7 +2860,6 @@ while running:
                 if e.key == pygame.K_RETURN:
 
                     leaderboard_page = True
-
                     get_online_leaderboard()
 
                 elif e.key == pygame.K_r:
@@ -3122,19 +2869,17 @@ while running:
                 elif e.key == pygame.K_TAB:
 
                     leaderboard_page = True
-
                     get_online_leaderboard()
 
                 continue
 
             # ------------------------------------------------
-            # LEADERBOARD SHORTCUT
+            # LEADERBOARD
             # ------------------------------------------------
 
             if e.key == pygame.K_TAB:
 
                 leaderboard_page = True
-
                 get_online_leaderboard()
 
                 continue
@@ -3168,7 +2913,6 @@ while running:
             # ------------------------------------------------
 
             if state != "playing":
-
                 continue
 
             # ------------------------------------------------
@@ -3183,9 +2927,7 @@ while running:
                 if (
                     phase == "holding"
                     and not throwing
-                    and abs(
-                        bar_y - TOP_Y
-                    ) < 2
+                    and abs(bar_y - TOP_Y) < 2
                 ):
 
                     weight_menu_open = True
@@ -3203,7 +2945,6 @@ while running:
             ):
 
                 if throw_catch_attempted:
-
                     continue
 
                 throw_catch_attempted = True
@@ -3239,9 +2980,7 @@ while running:
             if (
                 e.key == pygame.K_SPACE
                 and phase == "holding"
-                and abs(
-                    bar_y - TOP_Y
-                ) < 2
+                and abs(bar_y - TOP_Y) < 2
                 and not throwing
                 and throw_unlocked
             ):
@@ -3281,7 +3020,6 @@ while running:
                     chest_delay_timer
                     < CHEST_PRESS_DELAY
                 ):
-
                     continue
 
                 if stamina <= 0:
@@ -3403,9 +3141,7 @@ while running:
             if (
                 throw_reached_apex
                 and bar_v > 0
-                and CATCH_TOP_Y
-                <= bar_y
-                <= CATCH_BOTTOM_Y
+                and CATCH_TOP_Y <= bar_y <= CATCH_BOTTOM_Y
                 and not throw_catch_attempted
             ):
 
@@ -3458,7 +3194,6 @@ while running:
                 )
 
                 if lowering:
-
                     phase = "lowering"
 
             elif phase == "lowering":
@@ -3564,7 +3299,6 @@ while running:
             elif phase == "pressing":
 
                 chest_delay_timer += dt
-
                 press_timer += dt
 
                 if (
@@ -3801,7 +3535,6 @@ while running:
         )
 
         with network_lock:
-
             current_rank = online_rank
 
         if current_rank is not None:
@@ -3849,13 +3582,11 @@ while running:
             else:
 
                 if current_line:
-
                     lines.append(current_line)
 
                 current_line = word
 
         if current_line:
-
             lines.append(current_line)
 
         for i, line in enumerate(lines):
@@ -3898,7 +3629,10 @@ while running:
 # SHUTDOWN
 # ============================================================
 
+network_running = False
+
 pygame.key.stop_text_input()
 
 pygame.quit()
+
 sys.exit()
