@@ -6,12 +6,15 @@ import os
 import uuid
 import time
 import requests
+import threading
+import queue
+
+
+# ============================================================
+# PYGAME SETUP
+# ============================================================
 
 pygame.init()
-
-# ============================================================
-# SETUP
-# ============================================================
 
 W, H = 1000, 650
 
@@ -25,6 +28,11 @@ BIG = pygame.font.SysFont("arial", 58, bold=True)
 SMALL = pygame.font.SysFont("arial", 20)
 TINY = pygame.font.SysFont("arial", 17)
 
+
+# ============================================================
+# GAME CONSTANTS
+# ============================================================
+
 TOP_Y = 225
 CHEST_Y = 405
 
@@ -33,47 +41,329 @@ MAX_WEIGHT = 1000
 
 HIGH_WEIGHT_UNLOCK_SCORE = 35000
 
+MAX_LEADERBOARD_ENTRIES = 100
+
+
 # ============================================================
 # ONLINE SERVER
 # ============================================================
-#
-# IMPORTANT:
-#
-# Put YOUR Flask server's public address here.
-#
-# Your friends do NOT change this.
-# Everyone uses the same server address.
-#
-# Example:
-#
-# SERVER_URL = "https://myserver.example.com"
-#
-# Or, if using a temporary public tunnel:
-#
-# SERVER_URL = "https://something.example"
-#
-# ============================================================
 
-SERVER_URL = "http://YOUR_SERVER_ADDRESS:5000"
+SERVER_URL = "https://bench-press-leaderboard.onrender.com"
 
 LEADERBOARD_REFRESH_TIME = 3.0
 SCORE_UPLOAD_TIME = 3.0
 
+online_leaderboard = []
+
+online_connected = False
+online_status_message = "Connecting..."
+
+online_best_score = 0
+online_rank = None
+
+last_leaderboard_request = 0.0
+last_score_request = 0.0
+
+# ------------------------------------------------------------
+# IMPORTANT:
+#
+# Network requests happen on a background thread.
+#
+# The Pygame game loop NEVER waits for Render.
+# ------------------------------------------------------------
+
+network_queue = queue.Queue()
+
+network_lock = threading.Lock()
+
+network_running = True
+
+
+def server_url(path):
+    return SERVER_URL.rstrip("/") + path
+
+
+def network_worker():
+
+    global online_leaderboard
+    global online_connected
+    global online_status_message
+    global online_best_score
+    global online_rank
+
+    while network_running:
+
+        try:
+
+            task = network_queue.get(
+                timeout=0.25
+            )
+
+        except queue.Empty:
+
+            continue
+
+        try:
+
+            task_type = task.get("type")
+
+            # ==================================================
+            # GET LEADERBOARD
+            # ==================================================
+
+            if task_type == "leaderboard":
+
+                response = requests.get(
+                    server_url("/leaderboard"),
+                    timeout=3
+                )
+
+                if response.status_code != 200:
+
+                    with network_lock:
+
+                        online_connected = False
+
+                        online_status_message = (
+                            f"Server error: "
+                            f"{response.status_code}"
+                        )
+
+                    continue
+
+                data = response.json()
+
+                if not data.get(
+                    "success",
+                    False
+                ):
+
+                    with network_lock:
+
+                        online_connected = False
+
+                        online_status_message = (
+                            "Leaderboard error"
+                        )
+
+                    continue
+
+                received = data.get(
+                    "leaderboard",
+                    []
+                )
+
+                if not isinstance(
+                    received,
+                    list
+                ):
+
+                    received = []
+
+                with network_lock:
+
+                    online_leaderboard = received
+
+                    online_connected = True
+
+                    online_status_message = (
+                        "CONNECTED"
+                    )
+
+            # ==================================================
+            # SCORE UPLOAD
+            # ==================================================
+
+            elif task_type == "score":
+
+                response = requests.post(
+                    server_url("/score"),
+                    json={
+                        "device_id": task["device_id"],
+                        "username": task["username"],
+                        "score": int(
+                            task["score"]
+                        )
+                    },
+                    timeout=3
+                )
+
+                if response.status_code != 200:
+
+                    with network_lock:
+
+                        online_connected = False
+
+                        online_status_message = (
+                            f"Server error: "
+                            f"{response.status_code}"
+                        )
+
+                    continue
+
+                data = response.json()
+
+                if not data.get(
+                    "success",
+                    False
+                ):
+
+                    with network_lock:
+
+                        online_connected = False
+
+                        online_status_message = (
+                            "Score upload failed"
+                        )
+
+                    continue
+
+                with network_lock:
+
+                    online_connected = True
+
+                    online_status_message = (
+                        "CONNECTED"
+                    )
+
+                    try:
+
+                        online_best_score = int(
+                            data.get(
+                                "score",
+                                task["score"]
+                            )
+                        )
+
+                    except (
+                        ValueError,
+                        TypeError
+                    ):
+
+                        online_best_score = int(
+                            task["score"]
+                        )
+
+                    online_rank = data.get(
+                        "rank"
+                    )
+
+        except requests.RequestException:
+
+            with network_lock:
+
+                online_connected = False
+
+                online_status_message = (
+                    "OFFLINE"
+                )
+
+        except (
+            ValueError,
+            TypeError,
+            KeyError
+        ):
+
+            with network_lock:
+
+                online_connected = False
+
+                online_status_message = (
+                    "Invalid server response"
+                )
+
+        finally:
+
+            network_queue.task_done()
+
+
+# Start the networking thread.
+
+network_thread = threading.Thread(
+    target=network_worker,
+    daemon=True
+)
+
+network_thread.start()
+
+
+# ============================================================
+# NON-BLOCKING NETWORK FUNCTIONS
+# ============================================================
+
+def get_online_leaderboard():
+
+    try:
+
+        network_queue.put_nowait({
+            "type": "leaderboard"
+        })
+
+    except queue.Full:
+
+        pass
+
+
+def upload_score():
+
+    if not username:
+
+        return
+
+    try:
+
+        network_queue.put_nowait({
+            "type": "score",
+            "device_id": DEVICE_ID,
+            "username": username,
+            "score": int(score)
+        })
+
+    except queue.Full:
+
+        pass
+
+
+def update_online_data():
+
+    global last_leaderboard_request
+    global last_score_request
+
+    now = time.time()
+
+    # --------------------------------------------------------
+    # Leaderboard request
+    # --------------------------------------------------------
+
+    if (
+        now - last_leaderboard_request
+        >= LEADERBOARD_REFRESH_TIME
+    ):
+
+        get_online_leaderboard()
+
+        last_leaderboard_request = now
+
+    # --------------------------------------------------------
+    # Score upload
+    # --------------------------------------------------------
+
+    if (
+        state == "playing"
+        and username
+        and (
+            now - last_score_request
+            >= SCORE_UPLOAD_TIME
+        )
+    ):
+
+        upload_score()
+
+        last_score_request = now
+
+
 # ============================================================
 # DEVICE ID
-# ============================================================
-#
-# Every installation gets a persistent device ID.
-#
-# This is what the server uses to identify the device.
-#
-# Therefore:
-#
-# j -> 5000 points
-# Mike -> 40050 points
-#
-# is still ONE leaderboard entry.
-#
 # ============================================================
 
 DEVICE_ID_FILE = "bench_press_device_id.txt"
@@ -81,7 +371,9 @@ DEVICE_ID_FILE = "bench_press_device_id.txt"
 
 def get_device_id():
 
-    if os.path.exists(DEVICE_ID_FILE):
+    if os.path.exists(
+        DEVICE_ID_FILE
+    ):
 
         try:
 
@@ -101,7 +393,9 @@ def get_device_id():
 
             pass
 
-    new_id = str(uuid.uuid4())
+    new_id = str(
+        uuid.uuid4()
+    )
 
     try:
 
@@ -122,217 +416,6 @@ def get_device_id():
 
 DEVICE_ID = get_device_id()
 
-# ============================================================
-# ONLINE LEADERBOARD DATA
-# ============================================================
-
-online_leaderboard = []
-
-online_connected = False
-online_status_message = "Connecting..."
-
-last_leaderboard_refresh = 0.0
-last_score_upload = 0.0
-
-online_best_score = 0
-online_rank = None
-
-
-# ============================================================
-# ONLINE FUNCTIONS
-# ============================================================
-
-def server_url(path):
-
-    return (
-        SERVER_URL.rstrip("/")
-        + path
-    )
-
-
-def get_online_leaderboard():
-
-    global online_leaderboard
-    global online_connected
-    global online_status_message
-    global last_leaderboard_refresh
-
-    try:
-
-        response = requests.get(
-            server_url("/leaderboard"),
-            timeout=3
-        )
-
-        if response.status_code != 200:
-
-            online_connected = False
-
-            online_status_message = (
-                f"Server error: "
-                f"{response.status_code}"
-            )
-
-            return
-
-        data = response.json()
-
-        if not data.get("success", False):
-
-            online_connected = False
-
-            online_status_message = (
-                "Leaderboard error"
-            )
-
-            return
-
-        received = data.get(
-            "leaderboard",
-            []
-        )
-
-        if isinstance(received, list):
-
-            online_leaderboard = received
-
-        online_connected = True
-
-        online_status_message = (
-            "CONNECTED"
-        )
-
-        last_leaderboard_refresh = time.time()
-
-    except requests.RequestException:
-
-        online_connected = False
-
-        online_status_message = (
-            "OFFLINE"
-        )
-
-    except (
-        ValueError,
-        TypeError
-    ):
-
-        online_connected = False
-
-        online_status_message = (
-            "Invalid server response"
-        )
-
-
-def upload_score():
-
-    global online_connected
-    global online_status_message
-    global online_best_score
-    global online_rank
-    global last_score_upload
-
-    if not username:
-
-        return
-
-    try:
-
-        response = requests.post(
-            server_url("/score"),
-            json={
-                "device_id": DEVICE_ID,
-                "username": username,
-                "score": int(score)
-            },
-            timeout=3
-        )
-
-        if response.status_code != 200:
-
-            online_connected = False
-
-            online_status_message = (
-                f"Server error: "
-                f"{response.status_code}"
-            )
-
-            return
-
-        data = response.json()
-
-        if not data.get("success", False):
-
-            online_connected = False
-
-            online_status_message = (
-                "Score upload failed"
-            )
-
-            return
-
-        online_connected = True
-
-        online_status_message = (
-            "CONNECTED"
-        )
-
-        online_best_score = int(
-            data.get(
-                "score",
-                score
-            )
-        )
-
-        online_rank = data.get(
-            "rank"
-        )
-
-        last_score_upload = time.time()
-
-    except requests.RequestException:
-
-        online_connected = False
-
-        online_status_message = (
-            "OFFLINE"
-        )
-
-    except (
-        ValueError,
-        TypeError
-    ):
-
-        online_connected = False
-
-        online_status_message = (
-            "Invalid server response"
-        )
-
-
-def update_online_data():
-
-    global last_leaderboard_refresh
-    global last_score_upload
-
-    now = time.time()
-
-    if (
-        now - last_leaderboard_refresh
-        >= LEADERBOARD_REFRESH_TIME
-    ):
-
-        get_online_leaderboard()
-
-    if (
-        state == "playing"
-        and username
-        and now - last_score_upload
-        >= SCORE_UPLOAD_TIME
-    ):
-
-        upload_score()
-
 
 # ============================================================
 # USERNAME
@@ -344,7 +427,10 @@ username_input = ""
 
 def clean_username(name):
 
-    if not isinstance(name, str):
+    if not isinstance(
+        name,
+        str
+    ):
 
         return "Player"
 
@@ -377,22 +463,29 @@ def clean_username(name):
 
 
 # ============================================================
-# LEADERBOARD LOCAL DISPLAY
+# LEADERBOARD
 # ============================================================
 
 leaderboard_scroll = 0
 leaderboard_page = False
 
-MAX_LEADERBOARD_ENTRIES = 100
-
 
 def get_sorted_leaderboard():
 
+    with network_lock:
+
+        received = list(
+            online_leaderboard
+        )
+
     entries = []
 
-    for item in online_leaderboard:
+    for item in received:
 
-        if not isinstance(item, dict):
+        if not isinstance(
+            item,
+            dict
+        ):
 
             continue
 
@@ -422,9 +515,23 @@ def get_sorted_leaderboard():
             len(entries) + 1
         )
 
+        try:
+
+            rank = int(rank)
+
+        except (
+            ValueError,
+            TypeError
+        ):
+
+            rank = (
+                len(entries)
+                + 1
+            )
+
         entries.append(
             (
-                int(rank),
+                rank,
                 str(name),
                 score_value
             )
@@ -438,18 +545,29 @@ def get_sorted_leaderboard():
         reverse=True
     )
 
-    return entries[:MAX_LEADERBOARD_ENTRIES]
+    return entries[
+        :MAX_LEADERBOARD_ENTRIES
+    ]
 
 
 def get_player_best():
 
-    best = 0
+    with network_lock:
+
+        best_online = online_best_score
+
+    best = max(
+        0,
+        best_online
+    )
 
     player_name = clean_username(
         username
     )
 
-    for _, name, score_value in get_sorted_leaderboard():
+    for _, name, score_value in (
+        get_sorted_leaderboard()
+    ):
 
         if name == player_name:
 
@@ -458,22 +576,21 @@ def get_player_best():
                 score_value
             )
 
-    best = max(
-        best,
-        online_best_score
-    )
-
     return best
 
 
 def get_player_rank():
 
-    if online_rank is not None:
+    with network_lock:
+
+        current_rank = online_rank
+
+    if current_rank is not None:
 
         try:
 
             return int(
-                online_rank
+                current_rank
             )
 
         except (
@@ -489,11 +606,11 @@ def get_player_rank():
 
     entries = get_sorted_leaderboard()
 
-    for index, (
+    for (
         rank,
         name,
         score_value
-    ) in enumerate(entries):
+    ) in entries:
 
         if name == player_name:
 
@@ -515,6 +632,7 @@ REBOUND_DISTANCE = 35
 
 CHEST_PRESS_DELAY = 0.15
 
+
 # ============================================================
 # THROW PHYSICS
 # ============================================================
@@ -529,6 +647,7 @@ CATCH_BOTTOM_Y = HAND_Y + 25
 
 CATCH_WINDOW = 0.25
 
+
 # ============================================================
 # STAMINA
 # ============================================================
@@ -540,6 +659,7 @@ STAMINA_PER_TAP = 1.0
 STAMINA_REGEN_PERCENT = 0.01
 
 STAMINA_REGEN_LIMIT = 0.50
+
 
 # ============================================================
 # WEIGHTS
@@ -560,6 +680,7 @@ WEIGHTS_PAGE_2 = [
     820, 840, 860, 880, 900,
     920, 940, 960, 980, 1000
 ]
+
 
 # ============================================================
 # TAP REQUIREMENTS
@@ -869,12 +990,6 @@ def complete_challenge():
     global max_stamina
     global score
 
-    # ========================================================
-    # SCORE REWARDS
-    #
-    # These are HALF of the previous values.
-    # ========================================================
-
     rewards = {
         "easy": 500,
         "medium": 1000,
@@ -885,62 +1000,47 @@ def complete_challenge():
         "demonic": 5000
     }
 
-    # ========================================================
-    # EASY
-    #
-    # +1/4 MAX STAMINA
-    # ========================================================
-
     if challenge_difficulty == "easy":
 
-        stamina_gain = max_stamina * 0.25
+        stamina_gain = (
+            max_stamina * 0.25
+        )
 
         max_stamina += stamina_gain
-
         stamina = max_stamina
-
-    # ========================================================
-    # MEDIUM
-    #
-    # +1/2 MAX STAMINA
-    # ========================================================
 
     elif challenge_difficulty == "medium":
 
-        stamina_gain = max_stamina * 0.50
+        stamina_gain = (
+            max_stamina * 0.50
+        )
 
         max_stamina += stamina_gain
-
         stamina = max_stamina
 
     elif challenge_difficulty == "hard":
 
         max_stamina += 50
-
         stamina = max_stamina
 
     elif challenge_difficulty == "insane":
 
         max_stamina += 100
-
         stamina = max_stamina
 
     elif challenge_difficulty == "hell":
 
         max_stamina += 150
-
         stamina = max_stamina
 
     elif challenge_difficulty == "depression":
 
         max_stamina += 200
-
         stamina = max_stamina
 
     elif challenge_difficulty == "demonic":
 
         max_stamina += 250
-
         stamina = max_stamina
 
     reward_score = rewards[
@@ -960,7 +1060,6 @@ def complete_challenge():
     challenge = None
     challenge_progress = 0
 
-    # Immediately tell the online server.
     upload_score()
 
 
@@ -1012,25 +1111,13 @@ press_idle_timer = 0.0
 
 chest_delay_timer = 0.0
 
-# ============================================================
-# REBOUND
-# ============================================================
-
 rebound_timer = 0.0
 rebound_active = False
-
-# ============================================================
-# FAILURE
-# ============================================================
 
 failed_press = False
 muscle_torn = False
 
 failure_cause = ""
-
-# ============================================================
-# THROW
-# ============================================================
 
 throwing = False
 
@@ -1042,25 +1129,14 @@ throw_catch_attempted = False
 throw_reached_apex = False
 throw_start_y = TOP_Y
 
-# ============================================================
-# CRUSH
-# ============================================================
-
 crushing = False
 crush_timer = 0.0
-
-# ============================================================
-# UI
-# ============================================================
 
 message = "Hold the bar at the top."
 
 weight_menu_open = False
 weight_page = 1
 
-# IMPORTANT:
-# This variable fixes the previous
-# "leaderboard_page is not defined" error.
 leaderboard_page = False
 
 throw_unlocked = True
@@ -1200,7 +1276,7 @@ def reset():
 
     create_challenge()
 
-    # Immediately register the player.
+    # Non-blocking.
     upload_score()
 
 
@@ -1254,7 +1330,10 @@ def change_weight(new_weight):
 
     weight = max(
         MIN_WEIGHT,
-        min(MAX_WEIGHT, new_weight)
+        min(
+            MAX_WEIGHT,
+            new_weight
+        )
     )
 
     required_taps = get_required_taps(
@@ -1292,7 +1371,10 @@ def register_challenge_rep():
 
     challenge_progress += 1
 
-    if challenge_progress >= challenge_target:
+    if (
+        challenge_progress
+        >= challenge_target
+    ):
 
         complete_challenge()
 
@@ -1319,13 +1401,16 @@ def register_challenge_throw():
 
     challenge_progress += 1
 
-    if challenge_progress >= challenge_target:
+    if (
+        challenge_progress
+        >= challenge_target
+    ):
 
         complete_challenge()
 
 
 # ============================================================
-# START CRUSH
+# CRUSH
 # ============================================================
 
 def start_crush(
@@ -1505,7 +1590,9 @@ def draw_gym():
                 border_radius=5
             )
 
-    # UI
+    # ========================================================
+    # BASIC UI
+    # ========================================================
 
     txt(
         f"Weight: {weight} kg",
@@ -1541,9 +1628,16 @@ def draw_gym():
         SMALL
     )
 
+    # ========================================================
     # ONLINE STATUS
+    # ========================================================
 
-    if online_connected:
+    with network_lock:
+
+        connected = online_connected
+        status = online_status_message
+
+    if connected:
 
         txt(
             "ONLINE",
@@ -1556,14 +1650,16 @@ def draw_gym():
     else:
 
         txt(
-            online_status_message,
+            status,
             760,
             115,
             (255, 100, 80),
             SMALL
         )
 
+    # ========================================================
     # STAMINA
+    # ========================================================
 
     txt(
         "STAMINA",
@@ -1631,7 +1727,9 @@ def draw_gym():
         SMALL
     )
 
+    # ========================================================
     # THROW STATUS
+    # ========================================================
 
     if throw_unlocked:
 
@@ -1653,7 +1751,9 @@ def draw_gym():
             SMALL
         )
 
+    # ========================================================
     # THROW INDICATOR
+    # ========================================================
 
     if throwing:
 
@@ -1697,7 +1797,9 @@ def draw_gym():
                 SMALL
             )
 
+    # ========================================================
     # MESSAGE
+    # ========================================================
 
     txt(
         message,
@@ -1707,7 +1809,9 @@ def draw_gym():
         SMALL
     )
 
+    # ========================================================
     # CHALLENGE
+    # ========================================================
 
     if challenge is not None:
 
@@ -1753,7 +1857,9 @@ def draw_gym():
             SMALL
         )
 
+    # ========================================================
     # CONTROLS
+    # ========================================================
 
     txt(
         "SHIFT = Weight Menu | "
@@ -2296,7 +2402,12 @@ def draw_username_screen():
         SMALL
     )
 
-    if online_connected:
+    with network_lock:
+
+        connected = online_connected
+        status = online_status_message
+
+    if connected:
 
         txt(
             "SERVER: CONNECTED",
@@ -2309,7 +2420,7 @@ def draw_username_screen():
     else:
 
         txt(
-            "SERVER: " + online_status_message,
+            "SERVER: " + status,
             380,
             490,
             (255, 100, 80),
@@ -2342,9 +2453,11 @@ def draw_leaderboard():
         )
     )
 
-    # Connection
+    with network_lock:
 
-    if online_connected:
+        connected = online_connected
+
+    if connected:
 
         txt(
             "● LIVE",
@@ -2448,8 +2561,6 @@ def draw_leaderboard():
         - visible_rows
     )
 
-    global leaderboard_scroll
-
     leaderboard_scroll = max(
         0,
         min(
@@ -2473,9 +2584,11 @@ def draw_leaderboard():
 
             break
 
-        rank_value, name, score_value = entries[
-            index
-        ]
+        (
+            rank_value,
+            name,
+            score_value
+        ) = entries[index]
 
         y = (
             table_y
@@ -2603,15 +2716,32 @@ def draw_leaderboard():
 
 
 # ============================================================
-# MAIN LOOP
+# INITIALIZATION
 # ============================================================
 
 pygame.key.start_text_input()
 
-# Initial server connection attempt.
+# This only queues a request.
+# It does NOT wait for the server.
+
 get_online_leaderboard()
 
-while True:
+
+# ============================================================
+# MAIN GAME LOOP
+# ============================================================
+
+running = True
+
+while running:
+
+    # --------------------------------------------------------
+    # IMPORTANT:
+    #
+    # This remains the main Pygame thread.
+    #
+    # There are NO HTTP requests here.
+    # --------------------------------------------------------
 
     dt = clock.tick(60) / 1000.0
 
@@ -2632,15 +2762,20 @@ while True:
 
     for e in pygame.event.get():
 
+        # ====================================================
+        # QUIT
+        # ====================================================
+
         if e.type == pygame.QUIT:
 
-            # Try to save current score before closing.
+            # Non-blocking final upload.
             if username:
 
                 upload_score()
 
-            pygame.quit()
-            sys.exit()
+            running = False
+
+            break
 
         # ====================================================
         # USERNAME INPUT
@@ -2652,9 +2787,7 @@ while True:
 
                 if len(username_input) < 20:
 
-                    username_input += (
-                        e.text
-                    )
+                    username_input += e.text
 
                 continue
 
@@ -2696,7 +2829,9 @@ while True:
 
             if e.type == pygame.KEYDOWN:
 
-                entries = get_sorted_leaderboard()
+                entries = (
+                    get_sorted_leaderboard()
+                )
 
                 max_scroll = max(
                     0,
@@ -2959,16 +3094,6 @@ while True:
 
                     register_challenge_throw()
 
-                    # =================================================
-                    # IMPORTANT:
-                    #
-                    # Throw now gives 1x weight.
-                    #
-                    # 500 kg throw = +500 points
-                    #
-                    # NOT +1000.
-                    # =================================================
-
                     bonus = weight
 
                     score += bonus
@@ -3093,9 +3218,9 @@ while True:
                     ) * progress
                 )
 
-                # =================================================
+                # =============================================
                 # REP COMPLETE
-                # =================================================
+                # =============================================
 
                 if tap_count >= required_taps:
 
@@ -3119,8 +3244,6 @@ while True:
                     else:
 
                         reps += 1
-
-                        # Normal rep remains 1x weight.
 
                         score += weight
 
@@ -3196,6 +3319,7 @@ while True:
                 if not throw_catch_window_active:
 
                     throw_catch_window_active = True
+
                     throw_catch_window_timer = 0.0
 
                     message = (
@@ -3221,8 +3345,7 @@ while True:
 
             if (
                 throw_reached_apex
-                and bar_y
-                > CATCH_BOTTOM_Y
+                and bar_y > CATCH_BOTTOM_Y
             ):
 
                 throw_catch_window_active = False
@@ -3253,9 +3376,9 @@ while True:
 
         else:
 
-            # ==================================================
+            # =================================================
             # HOLDING
-            # ==================================================
+            # =================================================
 
             if phase == "holding":
 
@@ -3274,9 +3397,9 @@ while True:
 
                     message = "LOWERING..."
 
-            # ==================================================
+            # =================================================
             # LOWERING
-            # ==================================================
+            # =================================================
 
             elif phase == "lowering":
 
@@ -3319,9 +3442,9 @@ while True:
 
                     message = "REBOUND!"
 
-            # ==================================================
+            # =================================================
             # REBOUNDING
-            # ==================================================
+            # =================================================
 
             elif phase == "rebounding":
 
@@ -3365,9 +3488,9 @@ while True:
 
                     message = "READY!"
 
-            # ==================================================
+            # =================================================
             # REBOUND DELAY
-            # ==================================================
+            # =================================================
 
             elif phase == "rebound_delay":
 
@@ -3392,9 +3515,9 @@ while True:
 
                     message = "PRESS!"
 
-            # ==================================================
+            # =================================================
             # PRESSING
-            # ==================================================
+            # =================================================
 
             elif phase == "pressing":
 
@@ -3466,7 +3589,7 @@ while True:
                         message = "DRIVE!"
 
         # ====================================================
-        # NATURAL STAMINA REGENERATION
+        # STAMINA REGENERATION
         # ====================================================
 
         if (
@@ -3513,10 +3636,8 @@ while True:
 
             state = "gameover"
 
-            # Upload final score immediately.
+            # Both are non-blocking.
             upload_score()
-
-            # Refresh leaderboard.
             get_online_leaderboard()
 
     # ========================================================
@@ -3582,18 +3703,10 @@ while True:
             (0, 0)
         )
 
-        title = "GAME OVER"
-
-        colour = (
-            255,
-            75,
-            75
-        )
-
         title_surface = BIG.render(
-            title,
+            "GAME OVER",
             True,
-            colour
+            (255, 75, 75)
         )
 
         screen.blit(
@@ -3658,17 +3771,23 @@ while True:
             SMALL
         )
 
-        if online_rank is not None:
+        with network_lock:
+
+            current_rank = online_rank
+
+        if current_rank is not None:
 
             txt(
-                f"Online rank: #{online_rank}",
+                f"Online rank: #{current_rank}",
                 420,
                 310,
                 (100, 180, 255),
                 SMALL
             )
 
+        # ----------------------------------------------------
         # FAILURE
+        # ----------------------------------------------------
 
         cause_label = SMALL.render(
             "CAUSE OF FAILURE",
@@ -3759,3 +3878,13 @@ while True:
     # ========================================================
 
     pygame.display.flip()
+
+
+# ============================================================
+# SHUTDOWN
+# ============================================================
+
+pygame.key.stop_text_input()
+
+pygame.quit()
+sys.exit()
