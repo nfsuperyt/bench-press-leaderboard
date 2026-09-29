@@ -64,22 +64,13 @@ online_rank = None
 last_leaderboard_request = 0.0
 last_score_request = 0.0
 
-# ------------------------------------------------------------
-# IMPORTANT:
-#
-# Network requests happen on a background thread.
-#
-# The Pygame game loop NEVER waits for Render.
-# ------------------------------------------------------------
-
 network_queue = queue.Queue()
-
 network_lock = threading.Lock()
-
 network_running = True
 
 
 def server_url(path):
+
     return SERVER_URL.rstrip("/") + path
 
 
@@ -277,7 +268,7 @@ def network_worker():
             network_queue.task_done()
 
 
-# Start the networking thread.
+# Start networking thread.
 
 network_thread = threading.Thread(
     target=network_worker,
@@ -1276,7 +1267,6 @@ def reset():
 
     create_challenge()
 
-    # Non-blocking.
     upload_score()
 
 
@@ -1448,7 +1438,9 @@ def draw_gym():
         (25, 30, 38)
     )
 
+    # ========================================================
     # FLOOR
+    # ========================================================
 
     pygame.draw.rect(
         screen,
@@ -1456,7 +1448,9 @@ def draw_gym():
         (0, 475, W, 175)
     )
 
+    # ========================================================
     # BENCH
+    # ========================================================
 
     pygame.draw.rect(
         screen,
@@ -1481,7 +1475,9 @@ def draw_gym():
         9
     )
 
+    # ========================================================
     # CHARACTER
+    # ========================================================
 
     if state != "crushing":
 
@@ -1518,7 +1514,9 @@ def draw_gym():
             18
         )
 
+        # ====================================================
         # ARMS
+        # ====================================================
 
         if throwing:
 
@@ -1556,7 +1554,9 @@ def draw_gym():
                 arm_size
             )
 
+        # ====================================================
         # BAR
+        # ====================================================
 
         pygame.draw.line(
             screen,
@@ -1589,6 +1589,18 @@ def draw_gym():
                 ),
                 border_radius=5
             )
+
+    # ========================================================
+    # IMPORTANT CRUSH FIX
+    #
+    # If the player is being crushed, DO NOT draw any of the
+    # normal game UI. draw_crush_scene() will draw the crush
+    # animation and the ONLY text will be "Crushed".
+    # ========================================================
+
+    if state == "crushing":
+
+        return
 
     # ========================================================
     # BASIC UI
@@ -2286,9 +2298,15 @@ def draw_crush_scene(progress):
         border_radius=8
     )
 
+    # ========================================================
+    # IMPORTANT:
+    #
+    # This is the ONLY text shown during the crush scene.
+    # ========================================================
+
     txt(
-        "CRUSHED!",
-        405,
+        "Crushed",
+        420,
         155,
         (255, 50, 50),
         BIG
@@ -2561,7 +2579,19 @@ def draw_leaderboard():
         - visible_rows
     )
 
-    leaderboard_scroll = max(
+    # ========================================================
+    # LEADERBOARD BUG FIX
+    #
+    # Do NOT assign to leaderboard_scroll here.
+    #
+    # Because this function assigns to it, Python previously
+    # treated leaderboard_scroll as a local variable and then
+    # tried to read it before it had a value.
+    #
+    # Use a separate local variable instead.
+    # ========================================================
+
+    current_scroll = max(
         0,
         min(
             leaderboard_scroll,
@@ -2569,7 +2599,7 @@ def draw_leaderboard():
         )
     )
 
-    start_index = leaderboard_scroll
+    start_index = current_scroll
 
     for row in range(
         visible_rows
@@ -2721,9 +2751,6 @@ def draw_leaderboard():
 
 pygame.key.start_text_input()
 
-# This only queues a request.
-# It does NOT wait for the server.
-
 get_online_leaderboard()
 
 
@@ -2736,11 +2763,9 @@ running = True
 while running:
 
     # --------------------------------------------------------
-    # IMPORTANT:
+    # Main Pygame thread.
     #
-    # This remains the main Pygame thread.
-    #
-    # There are NO HTTP requests here.
+    # There are NO HTTP requests directly in this loop.
     # --------------------------------------------------------
 
     dt = clock.tick(60) / 1000.0
@@ -2768,7 +2793,6 @@ while running:
 
         if e.type == pygame.QUIT:
 
-            # Non-blocking final upload.
             if username:
 
                 upload_score()
@@ -3636,7 +3660,6 @@ while running:
 
             state = "gameover"
 
-            # Both are non-blocking.
             upload_score()
             get_online_leaderboard()
 
