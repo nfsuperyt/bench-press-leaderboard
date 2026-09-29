@@ -6,8 +6,17 @@ import time
 
 app = Flask(__name__)
 
-DATABASE = "leaderboard.db"
+# ============================================================
+# CONFIGURATION
+# ============================================================
+
 MAX_ENTRIES = 100
+
+# Always use a database file beside server.py.
+# This prevents Render from accidentally opening a different
+# database depending on the current working directory.
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DATABASE = os.path.join(BASE_DIR, "leaderboard.db")
 
 
 # ============================================================
@@ -21,6 +30,10 @@ def get_db():
 
 
 def init_database():
+    """
+    Create the database and players table if they do not exist.
+    """
+
     connection = get_db()
 
     connection.execute("""
@@ -34,6 +47,14 @@ def init_database():
 
     connection.commit()
     connection.close()
+
+
+# IMPORTANT:
+# Initialize the database when Flask starts.
+#
+# This fixes:
+# sqlite3.OperationalError: no such table: players
+init_database()
 
 
 # ============================================================
@@ -95,10 +116,13 @@ def clean_score(score):
 # ============================================================
 
 def get_leaderboard():
+    # Make absolutely sure the table exists.
+    init_database()
+
     connection = get_db()
 
     rows = connection.execute("""
-        SELECT device_id, username, score
+        SELECT device_id, username, score, updated_at
         FROM players
         WHERE score >= 0
         ORDER BY score DESC, updated_at ASC
@@ -120,6 +144,9 @@ def get_leaderboard():
 
 
 def get_player_rank(device_id):
+    # Make absolutely sure the table exists.
+    init_database()
+
     connection = get_db()
 
     row = connection.execute("""
@@ -149,12 +176,19 @@ def get_player_rank(device_id):
 # HEALTH CHECK
 # ============================================================
 
-@app.route("/")
+@app.route("/", methods=["GET"])
 def index():
     return {
         "status": "online",
         "game": "Bench Press Challenge",
         "leaderboard": "online"
+    }
+
+
+@app.route("/health", methods=["GET"])
+def health():
+    return {
+        "status": "ok"
     }
 
 
@@ -246,20 +280,7 @@ def submit_score():
 
         old_score = int(existing["score"])
 
-        # IMPORTANT:
-        #
-        # The device is the identity.
-        #
-        # Therefore:
-        #
-        # j -> Mike
-        #
-        # does NOT create another leaderboard position.
-        #
-        # It simply renames the existing device entry.
-        #
-        # The highest score is retained.
-
+        # Keep the highest score for this device.
         stored_score = max(
             old_score,
             score
@@ -322,31 +343,31 @@ def delete_player(device_id):
 
 
 # ============================================================
-# START
+# START SERVER
 # ============================================================
 
 if __name__ == "__main__":
 
+    # Initialize once more before starting the local server.
+    # This is harmless because IF NOT EXISTS is used.
     init_database()
+
+    port = int(os.environ.get("PORT", 5000))
 
     print()
     print("==========================================")
     print(" BENCH PRESS CHALLENGE LEADERBOARD SERVER")
     print("==========================================")
     print()
-    print("Server running on:")
-    print("http://0.0.0.0:5000")
+    print("Database:")
+    print(DATABASE)
     print()
-    print("Keep this server running while players")
-    print("are playing.")
+    print("Server running on port:")
+    print(port)
     print()
 
-    init_database()
-
-if __name__ == "__main__":
     app.run(
         host="0.0.0.0",
-        port=5000,
+        port=port,
         debug=False
     )
-
