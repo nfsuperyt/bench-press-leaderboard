@@ -52,12 +52,12 @@ SERVER_URL = "https://bench-press-leaderboard.onrender.com"
 # IMPORTANT:
 # Keep this short so a sleeping/broken Render server
 # cannot make the game appear frozen.
-SERVER_TIMEOUT = 5
+SERVER_TIMEOUT = 15
 
 LEADERBOARD_REFRESH_TIME = 10.0
 SCORE_UPLOAD_TIME = 10.0
 
-NETWORK_RETRY_DELAY = 8.0
+NETWORK_RETRY_DELAY = 5.0
 
 
 online_leaderboard = []
