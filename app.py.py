@@ -85,13 +85,9 @@ def network_worker():
     while network_running:
 
         try:
-
-            task = network_queue.get(
-                timeout=0.25
-            )
+            task = network_queue.get(timeout=0.25)
 
         except queue.Empty:
-
             continue
 
         try:
@@ -124,10 +120,7 @@ def network_worker():
 
                 data = response.json()
 
-                if not data.get(
-                    "success",
-                    False
-                ):
+                if not data.get("success", False):
 
                     with network_lock:
 
@@ -144,11 +137,7 @@ def network_worker():
                     []
                 )
 
-                if not isinstance(
-                    received,
-                    list
-                ):
-
+                if not isinstance(received, list):
                     received = []
 
                 with network_lock:
@@ -157,9 +146,7 @@ def network_worker():
 
                     online_connected = True
 
-                    online_status_message = (
-                        "CONNECTED"
-                    )
+                    online_status_message = "CONNECTED"
 
             # ==================================================
             # SCORE UPLOAD
@@ -172,9 +159,7 @@ def network_worker():
                     json={
                         "device_id": task["device_id"],
                         "username": task["username"],
-                        "score": int(
-                            task["score"]
-                        )
+                        "score": int(task["score"])
                     },
                     timeout=3
                 )
@@ -194,10 +179,7 @@ def network_worker():
 
                 data = response.json()
 
-                if not data.get(
-                    "success",
-                    False
-                ):
+                if not data.get("success", False):
 
                     with network_lock:
 
@@ -212,10 +194,7 @@ def network_worker():
                 with network_lock:
 
                     online_connected = True
-
-                    online_status_message = (
-                        "CONNECTED"
-                    )
+                    online_status_message = "CONNECTED"
 
                     try:
 
@@ -235,19 +214,14 @@ def network_worker():
                             task["score"]
                         )
 
-                    online_rank = data.get(
-                        "rank"
-                    )
+                    online_rank = data.get("rank")
 
         except requests.RequestException:
 
             with network_lock:
 
                 online_connected = False
-
-                online_status_message = (
-                    "OFFLINE"
-                )
+                online_status_message = "OFFLINE"
 
         except (
             ValueError,
@@ -298,7 +272,6 @@ def get_online_leaderboard():
 def upload_score():
 
     if not username:
-
         return
 
     try:
@@ -362,9 +335,7 @@ DEVICE_ID_FILE = "bench_press_device_id.txt"
 
 def get_device_id():
 
-    if os.path.exists(
-        DEVICE_ID_FILE
-    ):
+    if os.path.exists(DEVICE_ID_FILE):
 
         try:
 
@@ -377,16 +348,12 @@ def get_device_id():
                 saved_id = file.read().strip()
 
                 if len(saved_id) >= 10:
-
                     return saved_id
 
         except OSError:
-
             pass
 
-    new_id = str(
-        uuid.uuid4()
-    )
+    new_id = str(uuid.uuid4())
 
     try:
 
@@ -399,7 +366,6 @@ def get_device_id():
             file.write(new_id)
 
     except OSError:
-
         pass
 
     return new_id
@@ -418,17 +384,12 @@ username_input = ""
 
 def clean_username(name):
 
-    if not isinstance(
-        name,
-        str
-    ):
-
+    if not isinstance(name, str):
         return "Player"
 
     name = name.strip()
 
     if not name:
-
         return "Player"
 
     name = name[:20]
@@ -447,7 +408,6 @@ def clean_username(name):
     cleaned = cleaned.strip()
 
     if not cleaned:
-
         return "Player"
 
     return cleaned
@@ -473,11 +433,7 @@ def get_sorted_leaderboard():
 
     for item in received:
 
-        if not isinstance(
-            item,
-            dict
-        ):
-
+        if not isinstance(item, dict):
             continue
 
         name = item.get(
@@ -515,10 +471,7 @@ def get_sorted_leaderboard():
             TypeError
         ):
 
-            rank = (
-                len(entries)
-                + 1
-            )
+            rank = len(entries) + 1
 
         entries.append(
             (
@@ -536,9 +489,7 @@ def get_sorted_leaderboard():
         reverse=True
     )
 
-    return entries[
-        :MAX_LEADERBOARD_ENTRIES
-    ]
+    return entries[:MAX_LEADERBOARD_ENTRIES]
 
 
 def get_player_best():
@@ -556,9 +507,7 @@ def get_player_best():
         username
     )
 
-    for _, name, score_value in (
-        get_sorted_leaderboard()
-    ):
+    for _, name, score_value in get_sorted_leaderboard():
 
         if name == player_name:
 
@@ -579,16 +528,12 @@ def get_player_rank():
     if current_rank is not None:
 
         try:
-
-            return int(
-                current_rank
-            )
+            return int(current_rank)
 
         except (
             ValueError,
             TypeError
         ):
-
             pass
 
     player_name = clean_username(
@@ -604,7 +549,6 @@ def get_player_rank():
     ) in entries:
 
         if name == player_name:
-
             return rank
 
     return None
@@ -694,7 +638,6 @@ def get_required_taps(weight):
     }
 
     if weight in known:
-
         return known[weight]
 
     if weight <= 500:
@@ -708,9 +651,7 @@ def get_required_taps(weight):
             500
         ]
 
-        for i in range(
-            len(points) - 1
-        ):
+        for i in range(len(points) - 1):
 
             low = points[i]
             high = points[i + 1]
@@ -942,31 +883,24 @@ def create_challenge():
 def get_challenge_reward_text():
 
     if challenge_difficulty == "easy":
-
         return "+25% MAX STAMINA"
 
     if challenge_difficulty == "medium":
-
         return "+50% MAX STAMINA"
 
     if challenge_difficulty == "hard":
-
         return "+50 MAX STAMINA + FULL REFILL"
 
     if challenge_difficulty == "insane":
-
         return "+100 MAX STAMINA + FULL REFILL"
 
     if challenge_difficulty == "hell":
-
         return "+150 MAX STAMINA + FULL REFILL"
 
     if challenge_difficulty == "depression":
-
         return "+200 MAX STAMINA + FULL REFILL"
 
     if challenge_difficulty == "demonic":
-
         return "+250 MAX STAMINA + FULL REFILL"
 
     return ""
@@ -1057,7 +991,6 @@ def complete_challenge():
 def update_challenge_display():
 
     if challenge is None:
-
         return ""
 
     action = (
@@ -1093,9 +1026,7 @@ state = "username"
 
 tap_count = 0
 
-required_taps = get_required_taps(
-    weight
-)
+required_taps = get_required_taps(weight)
 
 press_timer = 0.0
 press_idle_timer = 0.0
@@ -1123,7 +1054,7 @@ throw_start_y = TOP_Y
 crushing = False
 crush_timer = 0.0
 
-message = "Hold the bar at the top."
+message = ""
 
 weight_menu_open = False
 weight_page = 1
@@ -1221,9 +1152,7 @@ def reset():
 
     tap_count = 0
 
-    required_taps = get_required_taps(
-        weight
-    )
+    required_taps = get_required_taps(weight)
 
     press_timer = 0.0
     press_idle_timer = 0.0
@@ -1248,7 +1177,7 @@ def reset():
     crushing = False
     crush_timer = 0.0
 
-    message = "Hold the bar at the top."
+    message = ""
 
     weight_menu_open = False
     weight_page = 1
@@ -1304,17 +1233,11 @@ def change_weight(new_weight):
     global required_taps
     global weight_menu_open
     global throw_unlocked
-    global message
 
     if (
         new_weight >= 520
         and score < HIGH_WEIGHT_UNLOCK_SCORE
     ):
-
-        message = (
-            "Reach 35000 score to unlock "
-            "high weights."
-        )
 
         return
 
@@ -1326,17 +1249,11 @@ def change_weight(new_weight):
         )
     )
 
-    required_taps = get_required_taps(
-        weight
-    )
+    required_taps = get_required_taps(weight)
 
     throw_unlocked = False
 
     weight_menu_open = False
-
-    message = (
-        f"{weight} kg selected."
-    )
 
 
 # ============================================================
@@ -1348,23 +1265,17 @@ def register_challenge_rep():
     global challenge_progress
 
     if challenge is None:
-
         return
 
     if challenge != "rep":
-
         return
 
     if weight != challenge_weight:
-
         return
 
     challenge_progress += 1
 
-    if (
-        challenge_progress
-        >= challenge_target
-    ):
+    if challenge_progress >= challenge_target:
 
         complete_challenge()
 
@@ -1378,23 +1289,17 @@ def register_challenge_throw():
     global challenge_progress
 
     if challenge is None:
-
         return
 
     if challenge != "throw":
-
         return
 
     if weight != challenge_weight:
-
         return
 
     challenge_progress += 1
 
-    if (
-        challenge_progress
-        >= challenge_target
-    ):
+    if challenge_progress >= challenge_target:
 
         complete_challenge()
 
@@ -1413,7 +1318,6 @@ def start_crush(
     global throwing
     global bar_v
     global tap_count
-    global message
 
     state = "crushing"
 
@@ -1424,8 +1328,6 @@ def start_crush(
 
     bar_v = 0.0
     tap_count = 0
-
-    message = message_text
 
 
 # ============================================================
@@ -1582,8 +1484,7 @@ def draw_gym():
                 (30, 30, 30),
                 (
                     x - 14,
-                    int(bar_y)
-                    - plate // 2,
+                    int(bar_y) - plate // 2,
                     28,
                     plate
                 ),
@@ -1591,15 +1492,10 @@ def draw_gym():
             )
 
     # ========================================================
-    # IMPORTANT CRUSH FIX
-    #
-    # If the player is being crushed, DO NOT draw any of the
-    # normal game UI. draw_crush_scene() will draw the crush
-    # animation and the ONLY text will be "Crushed".
+    # CRUSH STATE
     # ========================================================
 
     if state == "crushing":
-
         return
 
     # ========================================================
@@ -1639,35 +1535,6 @@ def draw_gym():
         (190, 195, 205),
         SMALL
     )
-
-    # ========================================================
-    # ONLINE STATUS
-    # ========================================================
-
-    with network_lock:
-
-        connected = online_connected
-        status = online_status_message
-
-    if connected:
-
-        txt(
-            "ONLINE",
-            820,
-            115,
-            (70, 230, 120),
-            SMALL
-        )
-
-    else:
-
-        txt(
-            status,
-            760,
-            115,
-            (255, 100, 80),
-            SMALL
-        )
 
     # ========================================================
     # STAMINA
@@ -1723,9 +1590,7 @@ def draw_gym():
         (
             725,
             50,
-            int(
-                220 * stamina_ratio
-            ),
+            int(220 * stamina_ratio),
             24
         ),
         border_radius=8
@@ -1740,89 +1605,12 @@ def draw_gym():
     )
 
     # ========================================================
-    # THROW STATUS
-    # ========================================================
-
-    if throw_unlocked:
-
-        txt(
-            "THROW READY",
-            620,
-            140,
-            (80, 225, 130),
-            SMALL
-        )
-
-    else:
-
-        txt(
-            "COMPLETE A REP TO UNLOCK THROW",
-            590,
-            140,
-            (255, 170, 70),
-            SMALL
-        )
-
-    # ========================================================
-    # THROW INDICATOR
-    # ========================================================
-
-    if throwing:
-
-        if throw_catch_attempted:
-
-            txt(
-                "ATTEMPT USED",
-                390,
-                195,
-                (255, 150, 80),
-                SMALL
-            )
-
-        elif throw_catch_window_active:
-
-            txt(
-                "CATCH NOW! SPACE",
-                360,
-                195,
-                (80, 255, 120),
-                SMALL
-            )
-
-        elif bar_y < CATCH_TOP_Y:
-
-            txt(
-                "WAIT FOR THE BAR...",
-                360,
-                195,
-                (255, 215, 80),
-                SMALL
-            )
-
-        else:
-
-            txt(
-                "MISSED! BAR FALLING!",
-                360,
-                195,
-                (255, 90, 70),
-                SMALL
-            )
-
-    # ========================================================
     # MESSAGE
-    # ========================================================
-
-    txt(
-        message,
-        300,
-        105,
-        (255, 215, 80),
-        SMALL
-    )
-
-    # ========================================================
-    # CHALLENGE
+    #
+    # Normal throw/bar commentary has deliberately been
+    # removed.
+    #
+    # Only challenge-related messages remain here.
     # ========================================================
 
     if challenge is not None:
@@ -1850,15 +1638,6 @@ def draw_gym():
             SMALL
         )
 
-        txt(
-            "Reward: "
-            + get_challenge_reward_text(),
-            300,
-            165,
-            colour,
-            SMALL
-        )
-
     elif challenge_message:
 
         txt(
@@ -1882,6 +1661,36 @@ def draw_gym():
         (185, 190, 200),
         SMALL
     )
+
+    # ========================================================
+    # ONLINE STATUS
+    #
+    # Moved to bottom-right.
+    # ========================================================
+
+    with network_lock:
+
+        connected = online_connected
+
+    if connected:
+
+        txt(
+            "ONLINE",
+            875,
+            610,
+            (70, 230, 120),
+            TINY
+        )
+
+    else:
+
+        txt(
+            "OFFLINE - PLAYING LOCALLY",
+            755,
+            610,
+            (255, 170, 80),
+            TINY
+        )
 
 
 # ============================================================
@@ -2063,9 +1872,7 @@ def draw_weight_menu():
 
         else:
 
-            label_text = (
-                f"{selected_weight} kg"
-            )
+            label_text = f"{selected_weight} kg"
 
             label_colour = (
                 255,
@@ -2118,9 +1925,7 @@ def draw_crush_scene(progress):
 
     bar_top = (
         335
-        + int(
-            90 * progress
-        )
+        + int(90 * progress)
     )
 
     normal_top = 365
@@ -2174,9 +1979,7 @@ def draw_crush_scene(progress):
 
     head_width = (
         58
-        + int(
-            45 * progress
-        )
+        + int(45 * progress)
     )
 
     head_height = max(
@@ -2192,9 +1995,7 @@ def draw_crush_scene(progress):
 
     head_x = (
         620
-        - int(
-            22 * progress
-        )
+        - int(22 * progress)
     )
 
     head_y = (
@@ -2237,9 +2038,7 @@ def draw_crush_scene(progress):
         (545, arm_y),
         (
             400
-            - int(
-                40 * progress
-            ),
+            - int(40 * progress),
             arm_y
         ),
         arm_height
@@ -2251,9 +2050,7 @@ def draw_crush_scene(progress):
         (575, arm_y),
         (
             700
-            + int(
-                40 * progress
-            ),
+            + int(40 * progress),
             arm_y
         ),
         arm_height
@@ -2283,8 +2080,7 @@ def draw_crush_scene(progress):
             (30, 30, 30),
             (
                 x - 14,
-                bar_top
-                - plate // 2,
+                bar_top - plate // 2,
                 28,
                 plate
             ),
@@ -2298,11 +2094,7 @@ def draw_crush_scene(progress):
         border_radius=8
     )
 
-    # ========================================================
-    # IMPORTANT:
-    #
-    # This is the ONLY text shown during the crush scene.
-    # ========================================================
+    # ONLY text during crush scene.
 
     txt(
         "Crushed",
@@ -2575,21 +2367,8 @@ def draw_leaderboard():
 
     max_scroll = max(
         0,
-        len(entries)
-        - visible_rows
+        len(entries) - visible_rows
     )
-
-    # ========================================================
-    # LEADERBOARD BUG FIX
-    #
-    # Do NOT assign to leaderboard_scroll here.
-    #
-    # Because this function assigns to it, Python previously
-    # treated leaderboard_scroll as a local variable and then
-    # tried to read it before it had a value.
-    #
-    # Use a separate local variable instead.
-    # ========================================================
 
     current_scroll = max(
         0,
@@ -2601,9 +2380,7 @@ def draw_leaderboard():
 
     start_index = current_scroll
 
-    for row in range(
-        visible_rows
-    ):
+    for row in range(visible_rows):
 
         index = (
             start_index
@@ -2611,7 +2388,6 @@ def draw_leaderboard():
         )
 
         if index >= len(entries):
-
             break
 
         (
@@ -2626,9 +2402,7 @@ def draw_leaderboard():
             + row * row_h
         )
 
-        if name == clean_username(
-            username
-        ):
+        if name == clean_username(username):
 
             colour = (
                 50,
@@ -2684,9 +2458,7 @@ def draw_leaderboard():
             SMALL
         )
 
-        score_text = str(
-            score_value
-        )
+        score_text = str(score_value)
 
         score_surface = SMALL.render(
             score_text,
@@ -2762,12 +2534,6 @@ running = True
 
 while running:
 
-    # --------------------------------------------------------
-    # Main Pygame thread.
-    #
-    # There are NO HTTP requests directly in this loop.
-    # --------------------------------------------------------
-
     dt = clock.tick(60) / 1000.0
 
     dt = min(
@@ -2794,7 +2560,6 @@ while running:
         if e.type == pygame.QUIT:
 
             if username:
-
                 upload_score()
 
             running = False
@@ -2810,7 +2575,6 @@ while running:
             if e.type == pygame.TEXTINPUT:
 
                 if len(username_input) < 20:
-
                     username_input += e.text
 
                 continue
@@ -2853,9 +2617,7 @@ while running:
 
             if e.type == pygame.KEYDOWN:
 
-                entries = (
-                    get_sorted_leaderboard()
-                )
+                entries = get_sorted_leaderboard()
 
                 max_scroll = max(
                     0,
@@ -3068,7 +2830,6 @@ while running:
             # ------------------------------------------------
 
             if state != "playing":
-
                 continue
 
             # ------------------------------------------------
@@ -3089,7 +2850,6 @@ while running:
                 ):
 
                     weight_menu_open = True
-
                     weight_page = 1
 
                 continue
@@ -3104,7 +2864,6 @@ while running:
             ):
 
                 if throw_catch_attempted:
-
                     continue
 
                 throw_catch_attempted = True
@@ -3129,19 +2888,7 @@ while running:
 
                     throw_unlocked = False
 
-                    message = (
-                        f"CAUGHT! +{bonus} SCORE, "
-                        "+25 STAMINA"
-                    )
-
                     upload_score()
-
-                else:
-
-                    message = (
-                        "MISSED CATCH! "
-                        "NO MORE ATTEMPTS!"
-                    )
 
                 continue
 
@@ -3174,8 +2921,6 @@ while running:
 
                 bar_v = THROW_INITIAL_VELOCITY
 
-                message = "BAR THROW!"
-
                 continue
 
             # =================================================
@@ -3196,7 +2941,6 @@ while running:
                     chest_delay_timer
                     < CHEST_PRESS_DELAY
                 ):
-
                     continue
 
                 if stamina <= 0:
@@ -3208,8 +2952,6 @@ while running:
                     failure_cause = (
                         "You ran out of stamina."
                     )
-
-                    message = "TOO TIRED!"
 
                     continue
 
@@ -3263,8 +3005,6 @@ while running:
                             "during the press."
                         )
 
-                        message = "TRICEP TEAR!"
-
                     else:
 
                         reps += 1
@@ -3295,10 +3035,6 @@ while running:
 
                         throw_unlocked = True
 
-                        message = (
-                            f"Rep {reps}! +{weight}"
-                        )
-
                         upload_score()
 
     # ========================================================
@@ -3328,7 +3064,6 @@ while running:
             )
 
             if bar_v >= 0:
-
                 throw_reached_apex = True
 
             if (
@@ -3346,11 +3081,6 @@ while running:
 
                     throw_catch_window_timer = 0.0
 
-                    message = (
-                        "CATCH WINDOW! "
-                        "PRESS SPACE!"
-                    )
-
                 else:
 
                     throw_catch_window_timer += dt
@@ -3362,24 +3092,12 @@ while running:
 
                     throw_catch_window_active = False
 
-                    message = (
-                        "MISSED CATCH! "
-                        "BAR FALLING!"
-                    )
-
             if (
                 throw_reached_apex
                 and bar_y > CATCH_BOTTOM_Y
             ):
 
                 throw_catch_window_active = False
-
-                if not throw_catch_attempted:
-
-                    message = (
-                        "MISSED CATCH! "
-                        "BAR FALLING!"
-                    )
 
             if bar_y >= CHEST_Y:
 
@@ -3390,9 +3108,7 @@ while running:
                     "the thrown bar."
                 )
 
-                start_crush(
-                    "BAR CRUSH!"
-                )
+                start_crush()
 
         # ====================================================
         # NORMAL BAR
@@ -3418,8 +3134,6 @@ while running:
                 if lowering:
 
                     phase = "lowering"
-
-                    message = "LOWERING..."
 
             # =================================================
             # LOWERING
@@ -3463,8 +3177,6 @@ while running:
                     rebound_timer = 0.0
 
                     phase = "rebounding"
-
-                    message = "REBOUND!"
 
             # =================================================
             # REBOUNDING
@@ -3510,8 +3222,6 @@ while running:
 
                     phase = "rebound_delay"
 
-                    message = "READY!"
-
             # =================================================
             # REBOUND DELAY
             # =================================================
@@ -3536,8 +3246,6 @@ while running:
 
                     press_timer = 0.0
                     press_idle_timer = 0.0
-
-                    message = "PRESS!"
 
             # =================================================
             # PRESSING
@@ -3568,9 +3276,7 @@ while running:
 
                         bar_y = CHEST_Y
 
-                        start_crush(
-                            "BAR CRUSH!"
-                        )
+                        start_crush()
 
                 else:
 
@@ -3591,10 +3297,6 @@ while running:
                             * dt
                         )
 
-                        message = (
-                            "THE BAR IS FALLING!"
-                        )
-
                         if bar_y >= CHEST_Y:
 
                             bar_y = CHEST_Y
@@ -3604,13 +3306,7 @@ while running:
                                 "for too long."
                             )
 
-                            start_crush(
-                                "BAR CRUSH!"
-                            )
-
-                    else:
-
-                        message = "DRIVE!"
+                            start_crush()
 
         # ====================================================
         # STAMINA REGENERATION
@@ -3840,27 +3536,19 @@ while running:
                 + word
             ).strip()
 
-            if SMALL.size(
-                test_line
-            )[0] <= 700:
+            if SMALL.size(test_line)[0] <= 700:
 
                 current_line = test_line
 
             else:
 
                 if current_line:
-
-                    lines.append(
-                        current_line
-                    )
+                    lines.append(current_line)
 
                 current_line = word
 
         if current_line:
-
-            lines.append(
-                current_line
-            )
+            lines.append(current_line)
 
         for i, line in enumerate(lines):
 
@@ -3875,8 +3563,7 @@ while running:
                 (
                     W // 2
                     - cause_surface.get_width() // 2,
-                    380
-                    + i * 25
+                    380 + i * 25
                 )
             )
 
