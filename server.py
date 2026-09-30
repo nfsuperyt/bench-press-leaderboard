@@ -12,7 +12,7 @@ app = Flask(__name__)
 
 MAX_ENTRIES = 100
 
-# Store the SQLite database next to this server.py file.
+# Keep the SQLite database beside this server.py file.
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATABASE = os.path.join(BASE_DIR, "leaderboard.db")
 
@@ -28,7 +28,7 @@ def get_db():
 
 
 def init_database():
-    """Create the database and players table if needed."""
+    """Create the database and players table if they don't exist."""
 
     connection = get_db()
 
@@ -45,7 +45,7 @@ def init_database():
     connection.close()
 
 
-# Create the database/table when Flask starts.
+# Create the database when the Flask application starts.
 init_database()
 
 
@@ -62,6 +62,7 @@ def clean_username(name):
     if not name:
         return "Player"
 
+    # Maximum username length.
     name = name[:20]
 
     # Remove control characters.
@@ -97,7 +98,7 @@ def clean_score(score):
     if score < 0:
         return None
 
-    # Prevent accidentally enormous/corrupt values.
+    # Prevent accidentally enormous values.
     return min(score, 2_000_000_000)
 
 
@@ -192,7 +193,7 @@ def leaderboard_route():
 
 
 # ============================================================
-# SUBMIT / UPDATE PLAYER
+# SUBMIT / UPDATE PLAYER SCORE
 # ============================================================
 
 @app.route("/score", methods=["POST"])
@@ -242,6 +243,7 @@ def submit_score():
 
     if existing is None:
 
+        # New player.
         connection.execute("""
             INSERT INTO players (
                 device_id,
@@ -261,9 +263,10 @@ def submit_score():
 
     else:
 
+        # Existing player.
         old_score = int(existing["score"])
 
-        # Only keep the highest score for this device.
+        # Never replace a player's highest score with a lower score.
         stored_score = max(old_score, score)
 
         connection.execute("""
@@ -293,7 +296,7 @@ def submit_score():
 
 
 # ============================================================
-# REMOVE A DEVICE
+# DELETE PLAYER
 # ============================================================
 
 @app.route("/player/<device_id>", methods=["DELETE"])
@@ -323,24 +326,19 @@ def delete_player(device_id):
 
 
 # ============================================================
-# START SERVER
+# LOCAL DEVELOPMENT
 # ============================================================
 
 if __name__ == "__main__":
 
     port = int(os.environ.get("PORT", 5000))
 
-    print()
     print("==========================================")
     print(" BENCH PRESS CHALLENGE LEADERBOARD SERVER")
     print("==========================================")
-    print()
-    print("Database:")
-    print(DATABASE)
-    print()
-    print("Server running on port:")
-    print(port)
-    print()
+    print(f"Database: {DATABASE}")
+    print(f"Port: {port}")
+    print("==========================================")
 
     app.run(
         host="0.0.0.0",
