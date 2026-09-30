@@ -49,17 +49,15 @@ MAX_LEADERBOARD_ENTRIES = 100
 
 SERVER_URL = "https://bench-press-leaderboard.onrender.com"
 
-# IMPORTANT:
-# Requests only wait 5 seconds.
-# The request runs in the background network thread,
-# so the Pygame game itself never freezes.
-SERVER_TIMEOUT = 5
+# Render servers can take a while to wake up after sleeping.
+# The request is still performed in the background thread,
+# so the game itself will NOT freeze.
+SERVER_TIMEOUT = 30
 
 LEADERBOARD_REFRESH_TIME = 10.0
 SCORE_UPLOAD_TIME = 10.0
 
-# After a failed request, wait 5 seconds and automatically
-# try again.
+# Retry independently after a failed request.
 NETWORK_RETRY_DELAY = 5.0
 
 
@@ -85,9 +83,6 @@ score_request_pending = False
 
 last_successful_connection = 0.0
 
-# Separate retry timers.
-# A failed leaderboard request must not prevent a score
-# upload from trying, and vice versa.
 next_leaderboard_retry = 0.0
 next_score_retry = 0.0
 
@@ -105,10 +100,7 @@ def server_url(path):
 # NETWORK STATUS
 # ============================================================
 
-def set_network_status(
-    connected,
-    message
-):
+def set_network_status(connected, message):
 
     global online_connected
     global online_status_message
@@ -117,6 +109,48 @@ def set_network_status(
 
         online_connected = connected
         online_status_message = message
+
+
+def set_connection_success():
+
+    global last_successful_connection
+
+    with network_lock:
+
+        global online_connected
+        global online_status_message
+
+        online_connected = True
+        online_status_message = "CONNECTED"
+        last_successful_connection = time.time()
+
+
+# ============================================================
+# NETWORK FAILURE HANDLER
+# ============================================================
+
+def network_failure(task_type, message):
+
+    global next_leaderboard_retry
+    global next_score_retry
+
+    set_network_status(
+        False,
+        message
+    )
+
+    retry_time = (
+        time.time()
+        + NETWORK_RETRY_DELAY
+    )
+
+    if task_type == "leaderboard":
+
+        next_leaderboard_retry = retry_time
+
+    elif task_type == "score":
+
+        next_score_retry = retry_time
 
 
 # ============================================================
@@ -131,8 +165,6 @@ def network_worker():
 
     global leaderboard_request_pending
     global score_request_pending
-
-    global last_successful_connection
 
     global next_leaderboard_retry
     global next_score_retry
@@ -177,14 +209,9 @@ def network_worker():
 
                 if response.status_code != 200:
 
-                    set_network_status(
-                        False,
+                    network_failure(
+                        "leaderboard",
                         f"SERVER {response.status_code}"
-                    )
-
-                    next_leaderboard_retry = (
-                        time.time()
-                        + NETWORK_RETRY_DELAY
                     )
 
                     continue
@@ -195,28 +222,18 @@ def network_worker():
 
                 except ValueError:
 
-                    set_network_status(
-                        False,
+                    network_failure(
+                        "leaderboard",
                         "BAD SERVER DATA"
-                    )
-
-                    next_leaderboard_retry = (
-                        time.time()
-                        + NETWORK_RETRY_DELAY
                     )
 
                     continue
 
                 if not isinstance(data, dict):
 
-                    set_network_status(
-                        False,
+                    network_failure(
+                        "leaderboard",
                         "BAD SERVER DATA"
-                    )
-
-                    next_leaderboard_retry = (
-                        time.time()
-                        + NETWORK_RETRY_DELAY
                     )
 
                     continue
@@ -226,14 +243,9 @@ def network_worker():
                     False
                 ):
 
-                    set_network_status(
-                        False,
+                    network_failure(
+                        "leaderboard",
                         "SERVER ERROR"
-                    )
-
-                    next_leaderboard_retry = (
-                        time.time()
-                        + NETWORK_RETRY_DELAY
                     )
 
                     continue
@@ -259,6 +271,8 @@ def network_worker():
                     online_status_message = (
                         "CONNECTED"
                     )
+
+                    global last_successful_connection
 
                     last_successful_connection = (
                         time.time()
@@ -287,8 +301,8 @@ def network_worker():
 
                 if not device_id:
 
-                    set_network_status(
-                        False,
+                    network_failure(
+                        "score",
                         "NO DEVICE ID"
                     )
 
@@ -324,14 +338,9 @@ def network_worker():
 
                 if response.status_code != 200:
 
-                    set_network_status(
-                        False,
+                    network_failure(
+                        "score",
                         f"SERVER {response.status_code}"
-                    )
-
-                    next_score_retry = (
-                        time.time()
-                        + NETWORK_RETRY_DELAY
                     )
 
                     continue
@@ -342,28 +351,18 @@ def network_worker():
 
                 except ValueError:
 
-                    set_network_status(
-                        False,
+                    network_failure(
+                        "score",
                         "BAD SCORE DATA"
-                    )
-
-                    next_score_retry = (
-                        time.time()
-                        + NETWORK_RETRY_DELAY
                     )
 
                     continue
 
                 if not isinstance(data, dict):
 
-                    set_network_status(
-                        False,
+                    network_failure(
+                        "score",
                         "BAD SCORE DATA"
-                    )
-
-                    next_score_retry = (
-                        time.time()
-                        + NETWORK_RETRY_DELAY
                     )
 
                     continue
@@ -373,14 +372,9 @@ def network_worker():
                     False
                 ):
 
-                    set_network_status(
-                        False,
+                    network_failure(
+                        "score",
                         "UPLOAD FAILED"
-                    )
-
-                    next_score_retry = (
-                        time.time()
-                        + NETWORK_RETRY_DELAY
                     )
 
                     continue
@@ -392,7 +386,6 @@ def network_worker():
                 with network_lock:
 
                     online_connected = True
-
                     online_status_message = (
                         "CONNECTED"
                     )
@@ -425,94 +418,44 @@ def network_worker():
 
                 next_score_retry = 0.0
 
+            # =================================================
+            # UNKNOWN TASK
+            # =================================================
+
+            else:
+
+                set_network_status(
+                    False,
+                    "NETWORK ERROR"
+                )
+
         except requests.Timeout:
 
-            if task_type == "leaderboard":
-
-                set_network_status(
-                    False,
-                    "SERVER SLOW"
-                )
-
-                next_leaderboard_retry = (
-                    time.time()
-                    + NETWORK_RETRY_DELAY
-                )
-
-            elif task_type == "score":
-
-                set_network_status(
-                    False,
-                    "SERVER SLOW"
-                )
-
-                next_score_retry = (
-                    time.time()
-                    + NETWORK_RETRY_DELAY
-                )
+            network_failure(
+                task_type,
+                "SERVER SLOW"
+            )
 
         except requests.ConnectionError:
 
-            set_network_status(
-                False,
+            network_failure(
+                task_type,
                 "OFFLINE"
             )
-
-            if task_type == "leaderboard":
-
-                next_leaderboard_retry = (
-                    time.time()
-                    + NETWORK_RETRY_DELAY
-                )
-
-            elif task_type == "score":
-
-                next_score_retry = (
-                    time.time()
-                    + NETWORK_RETRY_DELAY
-                )
 
         except requests.RequestException:
 
-            set_network_status(
-                False,
+            network_failure(
+                task_type,
                 "NETWORK ERROR"
             )
 
-            if task_type == "leaderboard":
-
-                next_leaderboard_retry = (
-                    time.time()
-                    + NETWORK_RETRY_DELAY
-                )
-
-            elif task_type == "score":
-
-                next_score_retry = (
-                    time.time()
-                    + NETWORK_RETRY_DELAY
-                )
-
         except Exception:
 
-            set_network_status(
-                False,
+            network_failure(
+                task_type,
                 "OFFLINE"
             )
-
-            if task_type == "leaderboard":
-
-                next_leaderboard_retry = (
-                    time.time()
-                    + NETWORK_RETRY_DELAY
-                )
-
-            elif task_type == "score":
-
-                next_score_retry = (
-                    time.time()
-                    + NETWORK_RETRY_DELAY
-                )
 
         finally:
 
@@ -1273,28 +1216,39 @@ def create_challenge():
 def get_challenge_reward_text():
 
     if challenge_difficulty == "easy":
-        return "+25% MAX STAMINA"
+
+        return "+50% STAMINA"
 
     if challenge_difficulty == "medium":
-        return "+50% MAX STAMINA"
+
+        return "FULL STAMINA REFILL"
 
     if challenge_difficulty == "hard":
+
         return "+50 MAX STAMINA + FULL REFILL"
 
     if challenge_difficulty == "insane":
+
         return "+100 MAX STAMINA + FULL REFILL"
 
     if challenge_difficulty == "hell":
+
         return "+150 MAX STAMINA + FULL REFILL"
 
     if challenge_difficulty == "depression":
+
         return "+200 MAX STAMINA + FULL REFILL"
 
     if challenge_difficulty == "demonic":
+
         return "+250 MAX STAMINA + FULL REFILL"
 
     return ""
 
+
+# ============================================================
+# COMPLETE CHALLENGE
+# ============================================================
 
 def complete_challenge():
 
@@ -1316,43 +1270,98 @@ def complete_challenge():
         "demonic": 5000
     }
 
+    # ========================================================
+    # EASY
+    # ========================================================
+    #
+    # IMPORTANT:
+    # Easy does NOT increase max stamina.
+    #
+    # It gives back 50% of the EXISTING max stamina.
+    #
+    # Example:
+    #
+    # 57 / 200
+    #
+    # + 100 stamina
+    #
+    # = 157 / 200
+    #
+    # ========================================================
+
     if challenge_difficulty == "easy":
-
-        stamina_gain = (
-            max_stamina * 0.25
-        )
-
-        max_stamina += stamina_gain
-        stamina = max_stamina
-
-    elif challenge_difficulty == "medium":
 
         stamina_gain = (
             max_stamina * 0.50
         )
 
-        max_stamina += stamina_gain
+        stamina = min(
+            max_stamina,
+            stamina + stamina_gain
+        )
+
+    # ========================================================
+    # MEDIUM
+    # ========================================================
+    #
+    # IMPORTANT:
+    # Medium does NOT increase max stamina.
+    #
+    # It completely refills the EXISTING stamina bar.
+    #
+    # Example:
+    #
+    # 57 / 200
+    #
+    # becomes
+    #
+    # 200 / 200
+    #
+    # ========================================================
+
+    elif challenge_difficulty == "medium":
+
         stamina = max_stamina
+
+    # ========================================================
+    # HARD
+    # ========================================================
 
     elif challenge_difficulty == "hard":
 
         max_stamina += 50
         stamina = max_stamina
 
+    # ========================================================
+    # INSANE
+    # ========================================================
+
     elif challenge_difficulty == "insane":
 
         max_stamina += 100
         stamina = max_stamina
+
+    # ========================================================
+    # HELL
+    # ========================================================
 
     elif challenge_difficulty == "hell":
 
         max_stamina += 150
         stamina = max_stamina
 
+    # ========================================================
+    # DEPRESSION
+    # ========================================================
+
     elif challenge_difficulty == "depression":
 
         max_stamina += 200
         stamina = max_stamina
+
+    # ========================================================
+    # DEMONIC
+    # ========================================================
 
     elif challenge_difficulty == "demonic":
 
@@ -1364,6 +1373,14 @@ def complete_challenge():
     ]
 
     score += reward_score
+
+    stamina = max(
+        0,
+        min(
+            stamina,
+            max_stamina
+        )
+    )
 
     challenge_message = (
         "CHALLENGE COMPLETE! "
@@ -2871,8 +2888,8 @@ def draw_leaderboard():
 
 pygame.key.start_text_input()
 
-# Start the first leaderboard request in the background.
-# The game does NOT wait for the server.
+# Immediately attempt to wake/connect to the server.
+# This happens in the network thread and never blocks Pygame.
 get_online_leaderboard()
 
 
@@ -3917,9 +3934,9 @@ while running:
 # SHUTDOWN
 # ============================================================
 
-# Give any already-queued score upload a moment to finish.
-# This is especially useful when closing the game immediately
-# after earning a score.
+# Give any queued score upload a chance to finish.
+# This is especially useful when the player closes the game
+# immediately after earning a score.
 
 if username:
 
@@ -3929,7 +3946,7 @@ if username:
 
     while (
         score_request_pending
-        and time.time() - shutdown_wait_start < 2.0
+        and time.time() - shutdown_wait_start < 5.0
     ):
 
         time.sleep(0.05)
