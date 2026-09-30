@@ -12,9 +12,7 @@ app = Flask(__name__)
 
 MAX_ENTRIES = 100
 
-# Always use a database file beside server.py.
-# This prevents Render from accidentally opening a different
-# database depending on the current working directory.
+# Store the SQLite database next to this server.py file.
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATABASE = os.path.join(BASE_DIR, "leaderboard.db")
 
@@ -30,9 +28,7 @@ def get_db():
 
 
 def init_database():
-    """
-    Create the database and players table if they do not exist.
-    """
+    """Create the database and players table if needed."""
 
     connection = get_db()
 
@@ -49,11 +45,7 @@ def init_database():
     connection.close()
 
 
-# IMPORTANT:
-# Initialize the database when Flask starts.
-#
-# This fixes:
-# sqlite3.OperationalError: no such table: players
+# Create the database/table when Flask starts.
 init_database()
 
 
@@ -106,9 +98,7 @@ def clean_score(score):
         return None
 
     # Prevent accidentally enormous/corrupt values.
-    score = min(score, 2_000_000_000)
-
-    return score
+    return min(score, 2_000_000_000)
 
 
 # ============================================================
@@ -116,13 +106,10 @@ def clean_score(score):
 # ============================================================
 
 def get_leaderboard():
-    # Make absolutely sure the table exists.
-    init_database()
-
     connection = get_db()
 
     rows = connection.execute("""
-        SELECT device_id, username, score, updated_at
+        SELECT username, score, updated_at
         FROM players
         WHERE score >= 0
         ORDER BY score DESC, updated_at ASC
@@ -144,9 +131,6 @@ def get_leaderboard():
 
 
 def get_player_rank(device_id):
-    # Make absolutely sure the table exists.
-    init_database()
-
     connection = get_db()
 
     row = connection.execute("""
@@ -258,7 +242,6 @@ def submit_score():
 
     if existing is None:
 
-        # First time this device has appeared.
         connection.execute("""
             INSERT INTO players (
                 device_id,
@@ -280,11 +263,8 @@ def submit_score():
 
         old_score = int(existing["score"])
 
-        # Keep the highest score for this device.
-        stored_score = max(
-            old_score,
-            score
-        )
+        # Only keep the highest score for this device.
+        stored_score = max(old_score, score)
 
         connection.execute("""
             UPDATE players
@@ -347,10 +327,6 @@ def delete_player(device_id):
 # ============================================================
 
 if __name__ == "__main__":
-
-    # Initialize once more before starting the local server.
-    # This is harmless because IF NOT EXISTS is used.
-    init_database()
 
     port = int(os.environ.get("PORT", 5000))
 
